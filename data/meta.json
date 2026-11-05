@@ -1,0 +1,30 @@
+{
+  "base_date": "2026-11-05",
+  "start_date": "2025-11-05",
+  "seed": 20261105,
+  "note": "ข้อมูลจำลองทั้งหมด ห้ามใช้แทนข้อมูลจริง",
+  "scenario": {
+    "short_dated_lots": [
+      "R69-0104",
+      "R70-0001"
+    ],
+    "note": "ล็อตใน short_dated_lots ปรับวันหมดอายุหลังจำลอง เพื่อแสดงกรณีผู้ขายส่งของอายุสั้น ตัวตรวจ FEFO ย้อนหลังจึงยกเว้นล็อตเหล่านี้"
+  },
+  "counts": {
+    "items": 47,
+    "herbs": 7,
+    "bom": 46,
+    "suppliers": 13,
+    "customers": 8,
+    "staff": 8,
+    "lots": 682,
+    "moves": 7041,
+    "purchase_orders": 255,
+    "jobs": 355,
+    "job_inputs": 1043,
+    "releases": 606,
+    "invoices": 1674,
+    "invoice_lines": 5313,
+    "shortages": 1
+  }
+}
