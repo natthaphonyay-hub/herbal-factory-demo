@@ -27,7 +27,7 @@ function parseCSV(text) {
 }
 const load = (n) => parseCSV(readFileSync(join(DIR, `${n}.csv`), 'utf8'));
 const meta = JSON.parse(readFileSync(join(DIR, 'meta.json'), 'utf8'));
-const T = Object.fromEntries(['items', 'lots', 'moves', 'purchase_orders', 'jobs', 'job_inputs', 'releases', 'invoices', 'invoice_lines', 'suppliers', 'customers', 'staff', 'bom'].map((n) => [n, load(n)]));
+const T = Object.fromEntries(['items', 'lots', 'moves', 'purchase_orders', 'jobs', 'job_inputs', 'releases', 'invoices', 'invoice_lines', 'suppliers', 'customers', 'staff', 'bom', 'qc_results', 'purchase_requests', 'assets', 'maintenance'].map((n) => [n, load(n)]));
 
 const results = [];
 const check = (name, problems) => results.push({ name, ok: problems.length === 0, problems });
@@ -153,6 +153,52 @@ for (const m of T.moves) { if (!byLot.has(m.lot_no)) byLot.set(m.lot_no, []); by
   if (!live.some((l) => days(base, l.exp_date) <= 30)) p.push('ไม่มีล็อตที่จะหมดอายุใน 30 วัน');
   if (!live.some((l) => days(base, l.exp_date) > 30 && days(base, l.exp_date) <= 90)) p.push('ไม่มีล็อตที่จะหมดอายุใน 31 ถึง 90 วัน');
   check('ฉากตัวอย่างครบ (หลอดจะขาด งานรอหลอด รอปล่อยผ่านนาน ใกล้หมดอายุ)', p);
+}
+
+// 8 ผลตรวจที่บันทึกแล้วรออนุมัติ: ล็อตยังรอปล่อยผ่าน และผู้ตรวจเป็นเจ้าหน้าที่ฝ่ายควบคุมคุณภาพ ไม่ใช่ผู้อนุมัติ
+{
+  const p = [];
+  const role = new Map(T.staff.map((x) => [x.user_id, x.role]));
+  for (const r of T.qc_results) {
+    const l = lots.get(r.lot_no);
+    if (!l) { p.push(`ผลตรวจอ้างล็อต ${r.lot_no} ที่ไม่มี`); continue; }
+    if (l.status !== 'รอปล่อยผ่าน') p.push(`${r.lot_no} มีผลตรวจรออนุมัติแต่สถานะเป็น ${l.status}`);
+    if (role.get(r.checker_id) !== 'เจ้าหน้าที่ฝ่ายควบคุมคุณภาพ') p.push(`${r.lot_no} ผู้บันทึกผลไม่ใช่เจ้าหน้าที่ฝ่ายควบคุมคุณภาพ`);
+  }
+  check('ผลตรวจรออนุมัติ บันทึกโดยเจ้าหน้าที่ คนละคนกับผู้อนุมัติ (SOP-QC-06, SOP-QC-07)', p);
+}
+
+// 9 ใบขอซื้อ: ผูกกับใบสั่งซื้อจริง ยอดเงินตรงจำนวนคูณราคา และวันที่แต่ละขั้นเรียงกัน
+{
+  const p = [];
+  const po = new Map(T.purchase_orders.map((x) => [x.po_no, x]));
+  const steps = ['requested', 'head_ok', 'dir_ok', 'ordered', 'received', 'inspected', 'pay_requested', 'paid'];
+  for (const r of T.purchase_requests) {
+    const o = po.get(r.po_no);
+    if (!o) { p.push(`${r.pr_no} อ้างใบสั่งซื้อ ${r.po_no} ที่ไม่มี`); continue; }
+    if (o.item_code !== r.item_code || o.supplier_id !== r.supplier_id || Number(o.qty) !== Number(r.qty)) p.push(`${r.pr_no} รายการไม่ตรงใบสั่งซื้อ`);
+    if (Math.abs(Number(r.qty) * Number(r.unit_cost) - Number(r.amount)) > 0.011) p.push(`${r.pr_no} ยอดเงินไม่ตรงจำนวนคูณราคา`);
+    if (r.ordered !== o.order_date || (r.received || '') !== (o.received_date || '')) p.push(`${r.pr_no} วันสั่งหรือวันรับไม่ตรงใบสั่งซื้อ`);
+    const ds = steps.map((k) => r[k]).filter(Boolean);
+    for (let i = 1; i < ds.length; i++) if (ds[i] < ds[i - 1]) { p.push(`${r.pr_no} วันที่ขั้นตอนย้อนกัน`); break; }
+    const filled = steps.map((k) => !!r[k]);
+    if (filled.indexOf(false) !== -1 && filled.slice(filled.indexOf(false)).some(Boolean)) p.push(`${r.pr_no} ข้ามขั้นตอน`);
+  }
+  check('ใบขอซื้อผูกใบสั่งซื้อ ยอดเงินตรง และเดินตามขั้นตอนวิธีเฉพาะเจาะจงไม่ข้ามขั้น', p);
+}
+
+// 10 ทะเบียนเครื่องมือและบันทึกบำรุงรักษา
+{
+  const p = [];
+  const staffIds = new Set(T.staff.map((x) => x.user_id));
+  const ids = new Set(T.assets.map((a) => a.asset_id));
+  for (const a of T.assets) {
+    if (!staffIds.has(a.owner_id)) p.push(`${a.asset_id} ผู้รับผิดชอบไม่มีในรายชื่อ`);
+    if (!['ใช้งาน', 'ชำรุด', 'เลิกใช้'].includes(a.status)) p.push(`${a.asset_id} สถานะไม่ตรง FM-43`);
+    if (Number(a.cal_days) > 0 && !T.maintenance.some((m) => m.asset_id === a.asset_id && m.type === 'สอบเทียบ')) p.push(`${a.asset_id} ต้องสอบเทียบแต่ไม่มีประวัติ`);
+  }
+  for (const m of T.maintenance) if (!ids.has(m.asset_id)) p.push(`บันทึกบำรุงรักษาอ้างเครื่อง ${m.asset_id} ที่ไม่มี`);
+  check('ทะเบียนเครื่องมือ FM-43 และบันทึกบำรุงรักษา FM-08 อ้างถึงกันครบ', p);
 }
 
 let fail = 0;

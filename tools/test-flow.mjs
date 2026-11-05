@@ -1,5 +1,6 @@
-// ทีมตรวจการใช้งาน: เปิดเว็บใน Chrome แบบไม่มีหน้าจอ แล้วลองใช้งานจริงตามลำดับ
-// ตรวจ 3 เรื่อง: ทุกหน้าไม่ล้นจอที่ความกว้างมือถือและแท็บเล็ต, สิทธิ์ตามบทบาท, งานทั้งสายตั้งแต่รับของถึงปล่อยผ่านและเดินงานผลิต
+// ทีมตรวจการใช้งาน: เปิดเว็บใน Chrome แบบไม่มีหน้าจอ แล้วลองใช้งานจริงตามลำดับ เหมือนพนักงานแต่ละฝ่ายใช้
+// ตรวจ: ทุกหน้าไม่ล้นจอ สิทธิ์ห้องทำงาน คนตรวจกับคนอนุมัติคนละคน งานทั้งสาย จัดซื้อทุกขั้น แก้ไขและลบพร้อมประวัติ
+// บันทึกถึงฝ่ายพร้อมหลักฐานการอ่าน ผลิตภัณฑ์และสูตร และเอกสารพร้อมพิมพ์
 // วิธีรัน: node tools/test-flow.mjs   (ต้องมี Google Chrome ในเครื่อง)
 
 import { createServer } from 'node:http';
@@ -23,7 +24,8 @@ const server = createServer(async (req, res) => {
   } catch { res.writeHead(404); res.end(); }
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const BASE = `http://127.0.0.1:${server.address().port}/index.html`;
+const ORIGIN = `http://127.0.0.1:${server.address().port}`;
+const BASE = `${ORIGIN}/index.html`;
 
 const port = 9300 + Math.floor(Math.random() * 500);
 const chrome = spawn(CHROME, ['--headless=new', '--disable-gpu', '--no-first-run', `--remote-debugging-port=${port}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), 'hfd-'))}`, 'about:blank'], { stdio: 'ignore' });
@@ -38,7 +40,12 @@ for (let i = 0; i < 50 && !ws; i++) {
 await new Promise((r) => ws.addEventListener('open', r, { once: true }));
 let id = 0;
 const pending = new Map();
-ws.addEventListener('message', (m) => { const d = JSON.parse(m.data); if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); } });
+const errors = [];
+ws.addEventListener('message', (m) => {
+  const d = JSON.parse(m.data);
+  if (d.id && pending.has(d.id)) { pending.get(d.id)(d); pending.delete(d.id); }
+  if (d.method === 'Runtime.exceptionThrown') errors.push(d.params.exceptionDetails?.exception?.description || 'exception');
+});
 const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function ev(expr) {
@@ -46,77 +53,141 @@ async function ev(expr) {
   if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description || 'evaluate error');
   return r.result?.result?.value;
 }
+const ready = async () => { for (let i = 0; i < 80; i++) { await sleep(120); if (await ev(`!!document.querySelector('#main .room-head, #main .locked, #main .doc-bar')`)) break; } await sleep(150); };
 async function open(hash, width = 1440) {
   await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: width < 700 });
-  await send('Page.navigate', { url: `${BASE}#/${hash}` });
-  for (let i = 0; i < 60; i++) { await sleep(150); if (await ev(`!!document.querySelector('#main .lead, #main section')`)) break; }
-  await sleep(200);
+  await send('Page.navigate', { url: `${BASE}?r=${Math.random().toString(36).slice(2, 7)}#/${hash}` });
+  await ready();
 }
-async function go(hash) { await ev(`location.hash = ${JSON.stringify(`#/${hash}`)}`); await sleep(400); }
-
+async function go(hash) { await ev(`location.hash = ${JSON.stringify(`#/${hash}`)}`); await sleep(350); await ready(); }
+const setUser = async (u) => { await ev(`(() => { const s = document.querySelector('#user'); s.value = '${u}'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`); await sleep(400); await ready(); };
+const text = (sel) => ev(`(document.querySelector(${JSON.stringify(sel)})?.textContent || '').trim()`);
+const count = (sel) => ev(`document.querySelectorAll(${JSON.stringify(sel)}).length`);
 const results = [];
-const check = (name, ok, detail = '') => { results.push({ name, ok, detail }); };
+const check = (name, ok, detail = '') => results.push({ name, ok: !!ok, detail });
 
 await send('Page.enable');
 await send('Runtime.enable');
+await send('Page.navigate', { url: `${ORIGIN}/data/meta.json` });
+await sleep(300);
+await ev(`localStorage.clear(); localStorage.setItem('hfd-user', JSON.stringify('U00')); true`);
 
-// 1 ไม่ล้นจอ
-const pages = ['overview', 'board', 'stock?tab=list', 'stock?tab=card', 'stock?tab=receive', 'stock?tab=issue', 'purchase', 'qc', 'sales', 'trace?lot=50017001', 'log'];
+// 1 ทุกหน้าไม่ล้นจอ (ผู้ใช้หัวหน้ากลุ่มงาน เข้าได้ทุกห้อง)
+const pages = ['overview', 'store', 'store?tab=card', 'store?tab=receive', 'store?tab=issue', 'store?tab=buy', 'store?tab=plan&item=91004', 'process', 'process?tab=new', 'process?tab=farm', 'prod', 'prod?tab=materials', 'prod?tab=plan', 'qc', 'qc?tab=released', 'sales', 'sales?tab=sales', 'sales?tab=stock', 'notes?compose=1', 'docs', 'doc?type=fm02', 'doc?type=fy-plan', 'registers', 'registers?tab=assets&id=EQ-15', 'registers?tab=suppliers', 'product?code=5001', 'trace', 'log'];
 for (const w of [390, 768]) {
   const bad = [];
   for (const p of pages) {
     await open(p, w);
-    const over = await ev(`(() => { const W = document.documentElement.clientWidth; const out = [...document.querySelectorAll('body *')].filter((e) => { const r = e.getBoundingClientRect(); if (r.width === 0) return false; let a = e.parentElement; while (a) { const s = getComputedStyle(a); if (s.overflowX === 'auto' || s.overflowX === 'hidden' || s.overflowX === 'scroll') return false; a = a.parentElement; } return r.right > W + 1; }).map((e) => (e.tagName + '.' + String(e.className).split(' ')[0] + ' ' + Math.round(e.getBoundingClientRect().right))); return { sw: document.documentElement.scrollWidth, W, out: out.slice(0, 4) }; })()`);
-    if (over.sw > over.W + 1) bad.push(`${p} กว้าง ${over.sw}px (${over.out.join(', ')})`);
+    const o = await ev(`(() => { const W = document.documentElement.clientWidth; return { sw: document.documentElement.scrollWidth, W }; })()`);
+    if (o.sw > o.W + 1) bad.push(`${p} กว้าง ${o.sw}px`);
   }
-  check(`ทุกหน้าไม่ล้นจอที่ความกว้าง ${w}px`, bad.length === 0, bad.join(' | '));
+  check(`ทุกหน้าไม่ล้นจอที่ความกว้าง ${w}px (${pages.length} หน้า)`, bad.length === 0, bad.join(' | '));
 }
 
-// 2 สิทธิ์ตามบทบาท และงานทั้งสาย
-await open('overview', 1440);
-await ev(`localStorage.clear()`);
-await open('qc', 1440);
-const setUser = (u) => ev(`(() => { const s = document.querySelector('#user'); s.value = '${u}'; s.dispatchEvent(new Event('change', { bubbles: true })); return s.value; })()`);
-await setUser('U00');
-await sleep(300);
-const firstLot = await ev(`document.querySelector('[data-act="release"]')?.dataset.lot`);
-await ev(`document.querySelector('[data-act="release"]').click()`);
-await sleep(300);
-const stillHold = await ev(`!!document.querySelector('[data-act="release"][data-lot="${firstLot}"]')`);
-check('หัวหน้ากลุ่มงานปล่อยผ่านไม่ได้ (เฉพาะหัวหน้าฝ่ายควบคุมคุณภาพ)', stillHold === true);
-
+// 2 ห้องทำงานตามสิทธิ์
+await open('overview');
 await setUser('U01');
-await go('stock?tab=receive&item=91004');
-const po = await ev(`(() => { const s = document.querySelector('[name="po"]'); const o = [...s.options].find((x) => x.value); s.value = o ? o.value : ''; return s.value; })()`);
-await ev(`(() => { const f = document.querySelector('[data-form="receive"]'); f.qty.value = '3000'; f.requestSubmit(); })()`);
-await sleep(500);
-const newLot = await ev(`[...document.querySelectorAll('[data-act="release"]')].map((b) => b.dataset.lot).find((x) => x.startsWith('R'))`);
-check('คลังรับหลอดตามใบสั่งซื้อแล้ว ล็อตใหม่ขึ้นคิวรอปล่อยผ่าน', !!po && !!newLot, `ใบสั่งซื้อ ${po} ล็อต ${newLot}`);
-
+await go('prod');
+check('เจ้าหน้าที่คลังเข้าห้องฝ่ายผลิตไม่ได้ เห็นป้ายไม่มีสิทธิ์และไม่เห็นข้อมูลห้อง', (await count('.locked')) === 1 && (await count('.kcard')) === 0);
+const homeU01 = await ev('location.hash');
 await setUser('U05');
-await sleep(300);
-await ev(`document.querySelector('[data-act="release"][data-lot="${newLot}"][data-res="ผ่าน"]').click()`);
-await sleep(400);
-const released = await ev(`!document.querySelector('[data-act="release"][data-lot="${newLot}"]')`);
-check('หัวหน้าฝ่ายควบคุมคุณภาพปล่อยผ่านได้ ป้ายเปลี่ยนเป็นตรวจสอบแล้ว', released === true);
+const homeU05 = await ev('location.hash');
+check('เปลี่ยนผู้ใช้แล้วเข้าห้องของฝ่ายตัวเองทันที', homeU05.startsWith('#/qc'), `${homeU01} ${homeU05}`);
 
+// 3 คนตรวจกับคนอนุมัติคนละคน: หัวหน้า QC อนุมัติล็อตที่ยังไม่มีผลตรวจไม่ได้
+const noResult = await ev(`(() => { const b = [...document.querySelectorAll('[data-act="release"][data-res="ผ่าน"]')].find((x) => x.disabled); return b ? b.dataset.lot : ''; })()`);
+check('ล็อตที่ยังไม่มีผลตรวจ ปุ่มปล่อยผ่านกดไม่ได้', !!noResult, noResult);
+
+// 4 งานทั้งสาย: รับหลอดตามใบสั่งซื้อ บันทึกผล ปล่อยผ่าน แล้วงานครีมที่หยุดเดินต่อ
+await setUser('U01');
+await go('store?tab=receive&item=91004');
+const po = await ev(`document.querySelector('[name="po"]').value`);
+await ev(`document.querySelector('[data-form="receive"]').requestSubmit(); true`);
+await sleep(500);
+const newLot = await text('.slip .slip-no');
+check('คลังรับหลอดตามใบสั่งซื้อ ได้เลขรับใหม่ ติดป้ายรอปล่อยผ่าน', po && newLot.startsWith('R') && (await text('.slip .stamp')) === 'รอปล่อยผ่าน', `${po} ${newLot}`);
+await setUser('U04');
+await go(`qc?lot=${newLot}`);
+await ev(`(() => { const f = document.querySelector('[data-form="qc"][data-lot="${newLot}"]'); f.result.value = 'ผ่านเกณฑ์'; f.note.value = 'ลักษณะภายนอกผ่าน'; f.requestSubmit(); return true; })()`);
+await sleep(400);
+await setUser('U05');
+await go(`qc?lot=${newLot}`);
+await ev(`document.querySelector('[data-act="release"][data-lot="${newLot}"][data-res="ผ่าน"]').click(); true`);
+await sleep(400);
+check('หัวหน้าฝ่ายควบคุมคุณภาพปล่อยผ่านหลังเจ้าหน้าที่บันทึกผล ตราตรวจสอบแล้วประทับลงสำเนา', (await text('.slip .stamp')) === 'ตรวจสอบแล้ว' && (await count(`[data-act="release"][data-lot="${newLot}"]`)) === 0);
 await setUser('U03');
-await go('board?lane=ผลิต');
-const blockedJob = await ev(`(() => { const c = [...document.querySelectorAll('.card')].find((x) => x.textContent.includes('หยุด รอ')); return c ? c.dataset.job : null; })()`);
-await ev(`document.querySelector('[data-act="move"][data-job="${blockedJob}"][data-dir="1"]').click()`);
-await sleep(400);
-const nowStage = await ev(`(() => { const c = document.querySelector('.card[data-job="${blockedJob}"]'); return c ? c.closest('[data-drop]').dataset.drop + (c.textContent.includes('หยุด รอ') ? ' (ยังหยุด)' : '') : 'ไม่พบ'; })()`);
-check('งานผลิตครีมไพลที่หยุดรอหลอด เดินต่อได้หลังรับหลอดและปล่อยผ่าน', nowStage === 'ผลิต', `${blockedJob} อยู่ขั้น ${nowStage}`);
+await go('prod');
+const blockedJob = await ev(`(() => { const c = [...document.querySelectorAll('.kcard')].find((x) => (x.querySelector('.k-block')?.textContent || '').includes('หลอด')); return c ? c.dataset.job : ''; })()`);
+await ev(`document.querySelector('[data-act="move"][data-job="${blockedJob}"][data-dir="1"]').click(); true`);
+await sleep(500);
+const stageNow = await ev(`(() => { const c = document.querySelector('.kcard[data-job="${blockedJob}"]'); return c ? c.closest('[data-drop]').dataset.drop : ''; })()`);
+check('งานครีมที่หยุดรอหลอด เดินต่อได้หลังรับหลอดและปล่อยผ่าน เบิกวัตถุดิบตามสูตรแบบ FEFO', stageNow === 'ผลิต', `${blockedJob} อยู่ขั้น ${stageNow}`);
 
-await go('stock?tab=card&item=91004');
-const cardRows = await ev(`document.querySelectorAll('tr.row-new').length`);
-check('บัตรคุมวัสดุ FM-02 ของหลอดมีรายการรับและเบิกใหม่', cardRows >= 2, `${cardRows} รายการใหม่`);
-
+// 5 จัดซื้อทุกขั้น: เขียนใบขอซื้อ แก้ไขพร้อมเหตุผล เห็นชอบ อนุมัติ ออกใบสั่งซื้อ
+await setUser('U01');
+await go('store?tab=buy&new=1&item=93009&qty=4000');
+await ev(`document.querySelector('[data-form="pr"]').requestSubmit(); true`);
+await sleep(500);
+const prNo = await text('.slip .slip-no');
+check('เขียนใบขอซื้อครั้งเดียว ได้เลขที่และลิงก์บันทึกขออนุมัติจัดซื้อ', prNo.startsWith('ขซ') && (await count('.slip-links a')) >= 2, prNo);
 await go('log');
-const logRows = await ev(`document.querySelectorAll('#main tbody tr').length`);
-check('ประวัติการแก้ไขบันทึกครบทุกการกระทำ (รับเข้า ปล่อยผ่าน ย้ายงาน)', logRows === 3, `${logRows} รายการ`);
+const prEv = await ev(`(() => { const r = [...document.querySelectorAll('#main tbody tr')].find((x) => x.textContent.includes('${prNo}') && x.querySelector('a[href*="edit="]')); return r ? r.querySelector('a[href*="edit="]').getAttribute('href').split('edit=')[1] : ''; })()`);
+await go(`log?edit=${prEv}`);
+await ev(`(() => { const f = document.querySelector('[data-form="amend"]'); f.qty.value = '6000'; f.reason.value = 'แผนผลิตเพิ่ม'; f.requestSubmit(); return true; })()`);
+await sleep(500);
+const amended = await ev(`(() => { const rows = [...document.querySelectorAll('#main tbody tr')]; return { neu: rows.some((r) => r.textContent.includes('ฉบับแก้ไข') && r.textContent.includes('6,000')), old: rows.some((r) => r.textContent.includes('แก้ไขแล้ว') && r.textContent.includes('4,000')) }; })()`);
+check('แก้ใบขอซื้อได้ ต้องมีเหตุผล ฉบับเดิมยังอยู่ในประวัติพร้อมสถานะแก้ไขแล้ว', amended.neu && amended.old, JSON.stringify(amended));
+const step = async (u, key) => { await setUser(u); await go(`store?tab=buy&step=${key}`); await ev(`document.querySelector('[data-act="prStep"][data-pr="${prNo}"][data-step="${key}"]').click(); true`); await sleep(450); return text('.slip .stamp'); };
+await step('U00', 'head_ok');
+await step('U08', 'dir_ok');
+await setUser('U01');
+await go('store?tab=buy&step=ordered');
+await ev(`document.querySelector('[data-act="prStep"][data-pr="${prNo}"][data-step="ordered"]').click(); true`);
+await sleep(450);
+const poNo = await text('.slip .slip-no');
+check('ใบขอซื้อผ่านหัวหน้ากลุ่มงานเห็นชอบ ผู้อำนวยการอนุมัติ แล้วออกใบสั่งซื้อพร้อมคาดการณ์วันของถึง', poNo.startsWith('PO'), poNo);
+await go(`doc?type=pr-memo&id=${encodeURIComponent(prNo)}`);
+check('บันทึกขออนุมัติจัดซื้อออกจากข้อมูลที่กรอกครั้งเดียว มีชื่อผู้ขอ ผู้เห็นชอบ ผู้อนุมัติ', (await ev(`document.querySelector('.paper').textContent.includes('6,000')`)) && (await count('.paper .sign-name')) === 3);
 
-await ev(`localStorage.clear()`);
+// 6 ลบรายการ: ต้องมีเหตุผล และลบรายการที่มีรายการอื่นอ้างถึงไม่ได้
+await go('log');
+const blockedDel = await ev(`(() => { const r = [...document.querySelectorAll('#main tbody tr')].find((x) => x.textContent.includes('รับเข้า หลอดอลูมิเนียม')); return r ? r.textContent.includes('ต้องลบรายการนั้นก่อน') : false; })()`);
+check('รายการรับหลอดที่มีผลตรวจและการเบิกตามมา ลบหรือแก้ไม่ได้จนกว่าจะยกเลิกรายการที่ตามมา', blockedDel);
+
+// 7 บันทึกถึงฝ่าย พร้อมหลักฐานการเปิดอ่าน
+await go('notes?compose=1&to=qc');
+await ev(`(() => { const f = document.querySelector('[data-form="note"]'); f.subject.value = 'ขอเร่งผลตรวจผงขมิ้นชัน'; f.body.value = 'ผลิตรอใช้สัปดาห์นี้'; f.ref.value = '${newLot}'; f.requestSubmit(); return true; })()`);
+await sleep(400);
+await setUser('U05');
+await go('notes');
+const unreadBefore = await count('.note-list li.is-unread');
+await ev(`document.querySelector('.note-list li.is-unread a').click(); true`);
+await sleep(700);
+await ready();
+check('ส่งบันทึกถึงฝ่ายควบคุมคุณภาพ ผู้รับเปิดอ่านแล้วระบบเก็บหลักฐานการอ่าน', unreadBefore >= 1 && (await ev(`document.querySelector('.note-reads').textContent.includes('อ่านแล้ว')`)));
+
+// 8 ผลิตภัณฑ์: เปลี่ยนสถานะ และบันทึกสูตรฉบับใหม่จากช่องจำลอง
+await setUser('U00');
+await go('product?code=5005');
+await ev(`(() => { const f = document.querySelector('[data-form="prodStatus"]'); f.status.value = 'พักผลิต'; f.reason.value = 'ยอดขายต่ำ'; f.fm40.value = 'FM-40 ที่ 1/2570'; f.requestSubmit(); return true; })()`);
+await sleep(450);
+const statusNow = await ev(`[...document.querySelectorAll('.room-head .chip')].map((c) => c.textContent).join(' ')`);
+const before = await text('[data-out="total"]');
+await ev(`(() => { const i = document.querySelector('[data-sim="qty"]'); i.value = String(Number(i.value) * 2); i.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+const after = await text('[data-out="total"]');
+await ev(`(() => { const f = document.querySelector('[data-form="formula"]'); f.reason.value = 'ทดลองเพิ่มตัวยา'; f.fm40.value = 'FM-40 ที่ 2/2570'; f.requestSubmit(); return true; })()`);
+await sleep(450);
+check('เปลี่ยนสถานะเป็นพักผลิต จำลองสูตรแล้วต้นทุนเปลี่ยนทันที บันทึกเป็นสูตรฉบับที่ 2', statusNow.includes('พักผลิต') && before !== after && (await ev(`document.body.textContent.includes('ฉบับที่ 2')`)), `${statusNow} ${before} เป็น ${after}`);
+
+// 9 เอกสารพร้อมพิมพ์
+await go('doc?type=fm19');
+const fm19 = await count('.paper .ptable tbody tr');
+await go('doc?type=fy-plan');
+const plan = await count('.paper .ptable.small tbody tr');
+check('เอกสาร FM-19 และแผนปีงบหน้ารายไตรมาสออกจากข้อมูลได้', fm19 > 0 && plan > 10, `FM-19 ${fm19} แถว แผน ${plan} รายการ`);
+
+check('ไม่มีข้อผิดพลาดของสคริปต์ระหว่างทดสอบ', errors.length === 0, [...new Set(errors)].slice(0, 3).join(' | '));
+
 let fail = 0;
 for (const r of results) { console.log(`${r.ok ? 'ผ่าน   ' : 'ไม่ผ่าน'}  ${r.name}${r.detail ? `  [${r.detail}]` : ''}`); if (!r.ok) fail++; }
 console.log(`\nสรุป: ผ่าน ${results.length - fail} จาก ${results.length} ข้อ`);

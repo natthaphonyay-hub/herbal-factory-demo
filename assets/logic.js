@@ -69,3 +69,40 @@ export function fefoPick(lots, qty) {
   }
   return { picks, short: Math.max(0, need) };
 }
+
+// พยากรณ์ความต้องการรายเดือนด้วยวิธีปรับเรียบเอกซ์โพเนนเชียลแบบมีแนวโน้มหน่วง (Holt damped trend)
+// ที่มา: Hyndman R.J., Athanasopoulos G. Forecasting: Principles and Practice 3rd ed. (OTexts 2021) บทที่ 8.2 และ 8.6
+// เลือกค่า alpha beta จากผลรวมความคลาดเคลื่อนกำลังสองของการพยากรณ์ล่วงหน้า 1 เดือน (in-house: ช่วงค่าที่ลอง)
+export function holtFit(xs, alpha, beta, phi) {
+  let level = xs[0], trend = xs.length > 1 ? xs[1] - xs[0] : 0, sse = 0;
+  for (let t = 1; t < xs.length; t++) {
+    const f = level + phi * trend;
+    const e = xs[t] - f;
+    sse += e * e;
+    const prev = level;
+    level = alpha * xs[t] + (1 - alpha) * (level + phi * trend);
+    trend = beta * (level - prev) + (1 - beta) * phi * trend;
+  }
+  return { level, trend, sse };
+}
+export function holtForecast(xs, h = 12, phi = 0.9) {
+  if (!xs.length) return { fc: Array(h).fill(0), alpha: 0, beta: 0 };
+  let best = null;
+  for (const alpha of [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]) for (const beta of [0, 0.05, 0.1, 0.2]) {
+    const r = holtFit(xs, alpha, beta, phi);
+    if (!best || r.sse < best.sse) best = { ...r, alpha, beta };
+  }
+  const fc = [];
+  let damp = 0;
+  for (let k = 1; k <= h; k++) { damp += phi ** k; fc.push(Math.max(0, best.level + damp * best.trend)); }
+  return { fc, alpha: best.alpha, beta: best.beta };
+}
+// ความแม่นย้อนหลัง: ตัด 3 เดือนล่าสุดออก พยากรณ์จากที่เหลือ แล้วเทียบของจริง (ร้อยละความคลาดเคลื่อนสัมบูรณ์ของผลรวม)
+export function holdoutError(xs, hold = 3) {
+  if (xs.length < hold + 4) return null;
+  const train = xs.slice(0, xs.length - hold);
+  const actual = xs.slice(-hold).reduce((a, b) => a + b, 0);
+  const pred = holtForecast(train, hold).fc.reduce((a, b) => a + b, 0);
+  if (actual <= 0) return null;
+  return Math.abs(pred - actual) / actual;
+}

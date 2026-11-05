@@ -1,35 +1,36 @@
 <!doctype html>
-<html lang="th" data-theme="light">
+<html lang="th">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ระบบหลังบ้านโรงงานยาสมุนไพร (ข้อมูลจำลอง)</title>
-<meta name="description" content="เว็บต้นแบบระบบหลังบ้านโรงงานยาสมุนไพร ข้อมูลจำลองทั้งหมด ใช้สาธิตเท่านั้น">
+<meta name="description" content="เว็บต้นแบบระบบหลังบ้านโรงงานยาสมุนไพร ห้องทำงานแยกฝ่ายตามสิทธิ์ ข้อมูลจำลองทั้งหมด ใช้สาธิตเท่านั้น">
+<meta name="theme-color" content="#1B2B4B">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="assets/theme.css?v=20261105">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3E%3Crect x='2' y='2' width='26' height='26' fill='white' stroke='%230E3A6B' stroke-width='2'/%3E%3Cpath d='M15 6C9 10 9 20 15 24C21 20 21 10 15 6Z' fill='none' stroke='%231C6DD0' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@400;500;600;700&family=B612+Mono:wght@400;700&display=swap">
+<link rel="stylesheet" href="assets/theme.css?v=20261105r5">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M3 7h26v6a3 3 0 0 0 0 6v6H3v-6a3 3 0 0 0 0-6Z' fill='%231B2B4B'/%3E%3Cpath d='M12 9v14' stroke='%23fff' stroke-width='1.5' stroke-dasharray='2 2'/%3E%3Cpath d='M17 21c0-5 3-8 8-9-1 5-4 8-8 9Z' fill='%23fff'/%3E%3C/svg%3E">
 </head>
 <body>
 <a class="skip" href="#main">ข้ามไปเนื้อหา</a>
-<div class="mock-banner" role="note">ระบบต้นแบบ ข้อมูลจำลองทั้งหมด ห้ามใช้บันทึกงานจริง</div>
-<div class="wrap">
-  <header class="titleblock">
-    <div class="tb-cell tb-brand">
-      <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden="true"><rect x="2" y="2" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.4"></rect><path d="M15 6 C9 10 9 20 15 24 C21 20 21 10 15 6 Z" fill="none" stroke="var(--ok)" stroke-width="1.4"></path><path d="M15 9 V22" stroke="var(--ok)" stroke-width="1.2"></path></svg>
-      <div><strong>ระบบหลังบ้าน</strong><span>โรงงานยาสมุนไพร</span></div>
+<header class="bar">
+  <div class="bar-top">
+    <a class="brand" href="#/" aria-label="ระบบหลังบ้าน โรงงานยาสมุนไพร ไปห้องทำงานของฉัน">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M3 7h26v6a3 3 0 0 0 0 6v6H3v-6a3 3 0 0 0 0-6Z"/><path class="perf" d="M12 9v14"/><path class="leaf" d="M17 21c0-5 3-8 8-9-1 5-4 8-8 9Z"/></svg>
+      <span class="brand-t"><strong>ระบบหลังบ้าน</strong><span>โรงงานยาสมุนไพร</span></span>
+    </a>
+    <div class="who">
+      <span class="mock">ข้อมูลจำลอง</span>
+      <label class="who-l" for="user">ผู้ใช้ (สมมุติ)</label>
+      <select id="user"></select>
     </div>
-    <div class="tb-cell"><span class="tb-k">แผ่นที่</span><span id="sheet-name" class="tb-v">กำลังโหลด</span></div>
-    <div class="tb-cell"><span class="tb-k">วันที่</span><span id="sheet-date" class="tb-v mono"></span></div>
-    <div class="tb-cell"><label class="tb-k" for="user">ผู้ใช้ (สมมุติ)</label><select id="user"></select></div>
-    <div class="tb-cell tb-tools"><span class="tb-v t-warn-dark">ข้อมูลจำลอง</span><button id="theme" type="button" class="btn btn-line btn-sm" aria-pressed="false">โทนมืด</button></div>
-  </header>
-  <nav id="nav" class="tabs" aria-label="เมนูหลัก"></nav>
-  <main id="main" tabindex="-1"><p class="muted">กำลังโหลดข้อมูลจำลอง</p></main>
-  <footer class="foot small muted">ข้อมูลทั้งหมดเป็นของสมมุติ สร้างจากการจำลองโรงงานย้อนหลัง 1 ปี และเลื่อนวันที่ให้ตรงกับวันนี้ทุกครั้งที่เปิด สิ่งที่ทดลองกรอกเก็บในเบราว์เซอร์เครื่องนี้เท่านั้น หัวข้อและเลขที่ผลิตยึดระเบียบปฏิบัติงาน SOP และแบบฟอร์ม FM ของโรงงาน</footer>
-</div>
-<div id="toast" class="toasts" aria-live="polite"></div>
-<script type="module" src="assets/app.js?v=20261105"></script>
+  </div>
+  <nav id="tabs" class="bar-tabs" aria-label="ห้องทำงาน"></nav>
+</header>
+<main id="main" class="wrap" tabindex="-1"><p class="loading">กำลังโหลดข้อมูลจำลอง</p></main>
+<footer class="foot wrap">ข้อมูลทั้งหมดเป็นของสมมุติ จำลองโรงงานย้อนหลัง 1 ปี และเลื่อนวันที่ให้ตรงกับวันนี้ทุกครั้งที่เปิด สิ่งที่ทดลองกรอกเก็บในเบราว์เซอร์เครื่องนี้เท่านั้น ห้ามใช้บันทึกงานจริง ชื่อฝ่าย ขั้นงาน ป้ายสถานะ และเลขที่ผลิต ยึดระเบียบปฏิบัติงาน SOP และแบบฟอร์ม FM ของโรงงาน</footer>
+<div id="toast" class="toasts" role="status" aria-live="polite"></div>
+<script type="module" src="assets/app.js?v=20261105r5"></script>
 </body>
 </html>

@@ -1,93 +1,34 @@
-// หน้าเว็บทั้งหมด หัวข้อยึดเอกสารของโรงงาน (ระเบียบ V8.9, SOP, FM)
-import { CONFIG, LANES, CAN, REQ_FORM } from './config.js';
-import { S, D, loadAll, commit, resetEvents, staff, currentUser, setUser, usable, round, nextLotNo, newMove, thaiDate, thaiLongDate, daysBetween, addDays, toCSV } from './data.js';
+// หน้าเว็บหลัก: ห้องทำงานแยกฝ่ายตามสิทธิ์ หัวข้อยึดเอกสารของโรงงาน (ระเบียบ V8.9, SOP, FM)
+import { CONFIG, LANES, CAN, REQ_FORM, ROOMS, TOOLS, canEnter, homeRoom } from './config.js';
+import {
+  S, D, loadAll, commit, resetEvents, staff, currentUser, setUser, usable, isFG, round, nextLotNo, nextJobId, nextInvNo,
+  newMove, thaiDate, daysBetween, addDays, toCSV, roomAlerts, bomOf, active, producing, eventById, blockers, withoutEvent, unreadNotes,
+} from './data.js';
 import { fefoPick } from './logic.js';
+import {
+  $, esc, num, qn, qty, qh, money, mill, short, I, svg, chip, lotChip, stamp, tableWrap, supName, custName, who, deptLegend,
+  toast, download, can, deny, roleNote, nav, setHash, slipState, showSlip, slipBlock, head, alertsBlock, seg, itemPicker, codeOf, monthLabel, actions,
+} from './ui.js';
+import { viewBuy, buyHandlers, buildPR } from './buy.js';
+import { viewPlan } from './plan.js';
+import { viewRegisters, viewProduct, registerHandlers, onSimInput } from './registers.js';
+import { viewDocs } from './docs.js';
+import { viewNotes, notesHandlers, afterNotes } from './notes.js';
 
-const $ = (sel, root = document) => root.querySelector(sel);
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const INT_UNITS = new Set(['ใบ', 'หลอด', 'ขวด', 'เม็ด', 'ชุด', 'ผืน', 'ดวง', 'ลูก', 'กล่อง']);
-const num = (n, d = 0) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: d, maximumFractionDigits: d });
-const num2 = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-function qty(code, q) { const it = S.items.get(code); const int = it && INT_UNITS.has(it.unit); return `${int ? num(q) : num2(q)} ${it ? it.unit : ''}`; }
-const money = (n) => `${num(n)} บาท`;
-const mill = (n) => (n / 1e6).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-const PAGES = [
-  { id: 'overview', no: '01', title: 'ภาพรวมโรงงาน', render: viewOverview },
-  { id: 'board', no: '02', title: 'บอร์ดงาน', render: viewBoard },
-  { id: 'stock', no: '03', title: 'คลัง รับเข้า เบิกออก', render: viewStock },
-  { id: 'purchase', no: '04', title: 'จัดซื้อ', render: viewPurchase },
-  { id: 'qc', no: '05', title: 'ควบคุมคุณภาพ', render: viewQC },
-  { id: 'sales', no: '06', title: 'ขาย ลูกหนี้', render: viewSales },
-  { id: 'trace', no: '07', title: 'ไล่ย้อนล็อต', render: viewTrace },
-  { id: 'log', no: '08', title: 'ประวัติการแก้ไข', render: viewLog },
-];
-
-// ---------- ชิ้นส่วนที่ใช้ซ้ำ ----------
-const ICON = {
-  crit: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg>',
-  warn: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 22 20H2Z"/><path d="M12 9v5M12 17v.5"/></svg>',
-  ok: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 10 17 19 7"/></svg>',
-};
-const LEVEL_TEXT = { crit: 'วิกฤต', warn: 'เฝ้าระวัง', ok: 'ปกติ' };
-const chip = (level, text = LEVEL_TEXT[level]) => `<span class="chip chip-${level}${level === 'crit' ? ' blink' : ''}">${ICON[level]}${esc(text)}</span>`;
-const TAG_CLASS = { 'รอปล่อยผ่าน': 'hold', 'ตรวจสอบแล้ว': 'pass', 'ไม่ผ่าน': 'fail', 'หมดอายุ': 'exp' };
-const tag = (status) => `<span class="tag tag-${TAG_CLASS[status] || 'exp'}"><i aria-hidden="true"></i>${esc(status)}</span>`;
-const avatar = (u) => `<span class="avatar" aria-hidden="true">${esc((u.name || '?').replace(/[เแโใไ]/, '').charAt(0))}</span>`;
-const tableWrap = (inner) => `<div class="table-wrap">${inner}</div>`;
-
-function toast(msg, level = 'ok') {
-  const box = $('#toast');
-  const el = document.createElement('div');
-  el.className = `toast toast-${level}`;
-  el.textContent = msg;
-  box.appendChild(el);
-  setTimeout(() => el.remove(), 5200);
-}
-function download(name, text) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-
-// ---------- หัวกระดาษและเมนู ----------
-function renderChrome(page) {
-  $('#sheet-name').textContent = `${page.no} ${page.title}`;
-  $('#sheet-date').textContent = thaiLongDate(S.today);
-  $('#nav').innerHTML = PAGES.map((p) => `<a href="#/${p.id}" ${p.id === page.id ? 'aria-current="page"' : ''}><span class="mono">${p.no}</span>${esc(p.title)}</a>`).join('');
-  const sel = $('#user');
-  sel.innerHTML = S.base.staff.map((s) => `<option value="${s.user_id}" ${s.user_id === S.user ? 'selected' : ''}>${esc(s.name)} ${esc(s.role)}</option>`).join('');
-  document.title = `${page.title} | ระบบหลังบ้านโรงงานยาสมุนไพร (ข้อมูลจำลอง)`;
-}
-
-function route() {
-  const [, id = 'overview', qs = ''] = location.hash.match(/^#\/([^?]*)\??(.*)$/) || [];
-  const page = PAGES.find((p) => p.id === id) || PAGES[0];
-  const params = new URLSearchParams(qs);
-  renderChrome(page);
-  $('#main').innerHTML = page.render(params);
-  $('#main').focus({ preventScroll: true });
-}
-
-// ---------- 01 ภาพรวมโรงงาน ----------
-function monthSales() {
+// ================= ภาพรวมโรงงาน =================
+export function monthSales() {
   const months = [];
   const [y, m] = S.today.split('-').map(Number);
-  for (let i = 12; i >= 1; i--) {
-    const dt = new Date(Date.UTC(y, m - 1 - i, 1));
-    months.push(dt.toISOString().slice(0, 7));
-  }
+  for (let i = 11; i >= 0; i--) months.push(new Date(Date.UTC(y, m - 1 - i, 1)).toISOString().slice(0, 7));
   const sum = new Map(months.map((k) => [k, 0]));
-  for (const v of S.base.invoices) { const k = v.date.slice(0, 7); if (sum.has(k)) sum.set(k, sum.get(k) + v.total); }
+  for (const v of S.invoices) { const k = v.date.slice(0, 7); if (sum.has(k) && v.date <= S.today) sum.set(k, sum.get(k) + v.total); }
   return months.map((k) => ({ month: k, total: sum.get(k) }));
 }
 function arAging() {
   const b = [0, 0, 0, 0];
   let overdue = 0, total = 0;
-  for (const v of S.base.invoices) {
-    if (v.paid_date) continue;
+  for (const v of S.invoices) {
+    if (v.paid_date || v.date > S.today) continue;
     const age = daysBetween(v.date, S.today);
     b[age <= 30 ? 0 : age <= 60 ? 1 : age <= 90 ? 2 : 3] += v.total;
     total += v.total;
@@ -95,173 +36,162 @@ function arAging() {
   }
   return { b, total, overdue };
 }
-const TH_MONTH = new Intl.DateTimeFormat('th-TH', { month: 'short', year: '2-digit', timeZone: 'UTC' });
-const monthLabel = (ym) => TH_MONTH.format(new Date(`${ym}-01T00:00:00Z`));
-
-function salesBars(ms) {
-  const max = Math.max(...ms.map((x) => x.total), 1);
-  return `<div class="bars" role="img" aria-label="ยอดขายรายเดือน 12 เดือน ล่าสุด ${monthLabel(ms[ms.length - 1].month)} ${mill(ms[ms.length - 1].total)} ล้านบาท">${ms.map((x, i) => `<div class="bar${i === ms.length - 1 ? ' bar-now' : ''}" style="height:${Math.max(4, Math.round((x.total / max) * 100))}%" title="${monthLabel(x.month)} ${mill(x.total)} ล้านบาท"></div>`).join('')}</div>
-  <div class="bars-axis mono"><span>${monthLabel(ms[0].month)}</span><span>${monthLabel(ms[6].month)}</span><span class="strong">${monthLabel(ms[ms.length - 1].month)} = ${mill(ms[ms.length - 1].total)} ล้าน</span></div>`;
-}
-function agingBar(ar) {
-  const labels = ['0 ถึง 30 วัน', '31 ถึง 60 วัน', '61 ถึง 90 วัน', 'เกิน 90 วัน'];
-  return `<div class="aging" role="img" aria-label="ลูกหนี้ตามอายุหนี้ ${labels.map((l, i) => `${l} ${mill(ar.b[i])} ล้าน`).join(' ')}">${ar.b.map((v, i) => `<div class="seg seg-${i}" style="flex:${Math.max(v, 0.0001)} 1 0" title="${labels[i]} ${mill(v)} ล้านบาท"></div>`).join('')}</div>
-  <div class="aging-legend">${labels.map((l, i) => `<span><i class="sw seg-${i}"></i>${l} ${mill(ar.b[i])}</span>`).join('')}</div>`;
-}
-
 function keyStockoutDays() {
   const [y, m] = S.today.split('-').map(Number);
   const fyStart = `${m >= 10 ? y : y - 1}-10-01`;
   const keys = new Set([...S.items.values()].filter((i) => i.key === 'Y' && i.lane === 'ผลิต').map((i) => i.code));
   return new Set(S.base.shortages.filter((s) => s.date >= fyStart && s.date <= S.today && keys.has(s.item_code)).map((s) => s.date)).size;
 }
-
-function schematic() {
-  const n = (lane, st) => D.board.filter((c) => c.job.lane === lane && c.stage === st).length;
-  const s1 = n('แปรรูป', 'ตรวจรับ');
-  const s2 = n('แปรรูป', 'คัดแยก ล้าง');
-  const s3 = n('แปรรูป', 'ตาก อบ') + n('แปรรูป', 'ลดขนาด บดร่อน');
-  const s4 = D.qcQueue.length;
-  const qcLate = D.qcQueue.some((q) => q.waiting > CONFIG.qcWaitWarnDays);
-  const s5 = S.lots.filter(usable).length;
-  const exp = D.expiries.length;
-  const s6 = D.board.filter((c) => c.job.lane === 'ผลิต' && ['จ่ายบันทึกการผลิต', 'เบิกวัตถุดิบ', 'ผลิต', 'บรรจุ'].includes(c.stage)).length;
-  const blockedCard = D.board.find((c) => c.blocked);
-  const s7 = S.base.invoices.filter((v) => daysBetween(v.date, S.today) < 7 && v.date <= S.today).length;
-  let feeder = '';
-  if (blockedCard) {
-    const it = [...S.items.values()].find((x) => x.name === blockedCard.blocked);
-    const st = it && D.itemStats.get(it.code);
-    const sup = it && S.base.suppliers.find((s) => s.supplier_id === it.supplier_id);
-    const days = st && Number.isFinite(st.cover) ? Math.max(0, Math.floor(st.cover)) : 0;
-    feeder = `<path d="M 500 344 L 500 306" class="pipe-crit-outer"/><path d="M 500 344 L 500 306" class="pipe-inner"/><path class="flowcrit" d="M 500 344 L 500 312" marker-end="url(#hc)" style="fill:none;stroke:var(--crit);stroke-width:2.4"/>
-    <rect x="425" y="344" width="150" height="52" class="box box-dash-crit"/><text x="500" y="366" text-anchor="middle" class="t-name">${esc(sup ? `ผู้ขาย${it.name.split(' ')[0]}` : 'ผู้ขาย')}</text>
-    <text x="500" y="385" text-anchor="middle" class="t-mono t-crit">ส่งเฉลี่ย ${st ? Math.round(st.lt.L) : '-'} วัน</text>
-    <g class="blink"><rect x="586" y="350" width="118" height="28" class="fill-crit-solid"/><text x="645" y="369" text-anchor="middle" class="t-on-crit">ขาดใน ${days} วัน</text></g>`;
-  }
-  const box = (x, y, w, code, name, count, unit, level = '') => `<rect x="${x}" y="${y}" width="${w}" height="76" class="box ${level ? `box-${level}` : ''}"/>
-    <text x="${x + 8}" y="${y + 16}" class="t-code">${code}</text>${name}
-    <text x="${x + w - 8}" y="${y + 68}" text-anchor="end" class="t-mono ${level ? `t-${level}` : 't-ok'}">${count} ${unit}</text>`;
-  const nm = (x, y, t) => `<text x="${x}" y="${y}" text-anchor="middle" class="t-name">${t}</text>`;
-  return `<svg viewBox="0 0 820 420" role="img" aria-label="ผังกระบวนการผลิต 7 สถานี ${blockedCard ? `งานผลิตหยุดรอ${esc(blockedCard.blocked)}` : 'ไม่มีงานหยุด'}" class="schematic">
-  <defs><marker id="hb" orient="auto" markerWidth="6" markerHeight="6" refX="2" refY="3" overflow="visible"><path d="M0 0 L6 3 L0 6 Z" class="head-ok"/></marker>
-  <marker id="hc" orient="auto" markerWidth="6" markerHeight="6" refX="2" refY="3" overflow="visible"><path d="M0 0 L6 3 L0 6 Z" class="head-crit"/></marker></defs>
-  <g class="pipe-outer"><path d="M 130 98 L 170 98"/><path d="M 300 98 L 340 98"/><path d="M 470 98 L 510 98"/><path d="M 640 98 L 680 98"/><path d="M 740 136 L 740 230"/><path d="M 680 268 L 575 268"/><path d="M 425 268 L 300 268"/></g>
-  <g class="pipe-inner-g"><path d="M 130 98 L 170 98"/><path d="M 300 98 L 340 98"/><path d="M 470 98 L 510 98"/><path d="M 640 98 L 680 98"/><path d="M 740 136 L 740 230"/><path d="M 680 268 L 575 268"/><path d="M 425 268 L 300 268"/></g>
-  <g class="flow-g"><path class="flow" d="M 130 98 L 164 98" marker-end="url(#hb)"/><path class="flow" d="M 300 98 L 334 98" marker-end="url(#hb)"/><path class="flow" d="M 470 98 L 504 98" marker-end="url(#hb)"/><path class="flow" d="M 640 98 L 674 98" marker-end="url(#hb)"/><path class="flow" d="M 740 136 L 740 224" marker-end="url(#hb)"/><path class="flow" d="M 680 268 L 581 268" marker-end="url(#hb)"/><path class="flow" d="M 425 268 L 306 268" marker-end="url(#hb)"/></g>
-  ${feeder}
-  <rect x="20" y="70" width="110" height="56" class="box box-dash"/>${nm(75, 96, 'เกษตรกร')}<text x="75" y="114" text-anchor="middle" class="t-mono t-muted">${S.base.suppliers.filter((s) => s.type === 'เกษตรกร').length} กลุ่ม</text>
-  ${box(170, 60, 130, 'ST-01', nm(235, 104, 'รับวัตถุดิบสด'), s1, 'งาน')}
-  ${box(340, 60, 130, 'ST-02', nm(405, 104, 'คัดแยก ล้าง'), s2, 'งาน')}
-  ${box(510, 60, 130, 'ST-03', nm(575, 104, 'ตาก อบ บด'), s3, 'งาน')}
-  ${box(680, 60, 120, 'ST-04', nm(740, 96, 'รอปล่อยผ่าน') + nm(740, 113, '(QC)'), s4, 'ล็อต', qcLate ? 'warn' : '')}
-  ${box(680, 230, 120, 'ST-05', nm(740, 274, 'คลัง'), s5, 'ล็อต', exp ? 'warn' : '')}
-  ${exp ? `<rect x="680" y="316" width="120" height="24" class="fill-warn-soft"/><text x="740" y="333" text-anchor="middle" class="t-warn-dark">ใกล้หมดอายุ ${exp}</text>` : ''}
-  ${blockedCard ? '<rect class="blink box-dash-crit" x="419" y="224" width="162" height="88" style="fill:none"/>' : ''}
-  ${box(425, 230, 150, 'ST-06', nm(500, 274, 'ผลิต บรรจุ'), s6, 'งาน', blockedCard ? 'crit' : '')}
-  ${box(170, 230, 130, 'ST-07', nm(235, 274, 'จ่ายออก'), s7, 'ใบส่งของ')}
-  </svg>`;
+function salesBars(ms) {
+  const W = 600, H = 190, top = 26, base = 158, bw = 30, step = W / ms.length;
+  const max = Math.max(...ms.map((x) => x.total), 1);
+  const last = ms[ms.length - 1];
+  return `<figure class="bars"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="ยอดขายรายเดือน 12 เดือน ล่าสุด ${esc(monthLabel(last.month))} ${mill(last.total)} ล้านบาท">
+    <line class="base" x1="0" x2="${W}" y1="${base}" y2="${base}"/>
+    ${ms.map((x, i) => { const h = Math.max(2, Math.round(((base - top) * x.total) / max)); const cx = i * step + step / 2; const now = i === ms.length - 1; return `<rect class="${now ? 'bar-now' : 'bar-b'}" x="${cx - bw / 2}" y="${base - h}" width="${bw}" height="${h}" rx="3"><title>${esc(monthLabel(x.month))} ${mill(x.total)} ล้านบาท</title></rect>${i % 2 === ms.length % 2 || now ? `<text class="ax" x="${cx}" y="${base + 18}" text-anchor="middle">${esc(monthLabel(x.month))}</text>` : ''}${now ? `<text class="val" x="${cx}" y="${base - h - 8}" text-anchor="middle">${mill(x.total)}</text>` : ''}`; }).join('')}
+  </svg><figcaption class="note">ล้านบาท แท่งสีม่วงคือเดือนนี้ (ถึงวันนี้) ชี้ที่แท่งเพื่อดูยอด</figcaption></figure>`;
+}
+function agingBar(ar) {
+  const labels = ['0 ถึง 30 วัน', '31 ถึง 60 วัน', '61 ถึง 90 วัน', 'เกิน 90 วัน'];
+  return `<div class="aging" role="img" aria-label="ลูกหนี้ตามอายุหนี้ ${labels.map((l, i) => `${l} ${mill(ar.b[i])} ล้านบาท`).join(' ')}">${ar.b.map((v, i) => `<span class="ag-${i}" style="flex:${Math.max(v, 1)} 1 0" title="${labels[i]} ${mill(v)} ล้านบาท"></span>`).join('')}</div>
+    <div class="aging-legend">${labels.map((l, i) => `<span><i class="ag-${i}"></i>${l}<span class="num">${mill(ar.b[i])}</span></span>`).join('')}</div>`;
+}
+export function stripCells(cells) {
+  return `<section class="strip" style="--cells:${cells.length}" aria-label="ตัวเลขสำคัญ">${cells.map((c) => `<div class="cell${c.lv ? ` is-${c.lv}` : ''}"><div class="cell-k">${esc(c.k)}</div><div class="cell-n"><span class="num">${esc(c.n)}</span><span>${esc(c.u)}</span></div><div class="cell-d">${c.d}</div></div>`).join('')}</section>`;
 }
 
-function alertCard(a, compact = false) {
-  const go = { supply: 'purchase', reorder: 'purchase', expiry: 'stock', qc: 'qc', blocked: 'board' }[a.kind];
-  let tl = '';
-  if (a.timeline && a.timeline.stockout) {
-    const t0 = a.timeline.order, t1 = a.timeline.expected;
-    const span = Math.max(1, daysBetween(t0, t1));
-    const pct = (d) => Math.min(100, Math.max(0, (daysBetween(t0, d) / span) * 100));
-    const so = pct(a.timeline.stockout), now = pct(S.today);
-    tl = `<div class="timeline" role="img" aria-label="สั่ง ${thaiDate(t0)} วันนี้ ${thaiDate(S.today)} ของหมด ${thaiDate(a.timeline.stockout)} คาดถึง ${thaiDate(t1)}">
-      <div class="tl-track"></div><div class="tl-ok" style="width:${so}%"></div>${so < 100 ? `<div class="tl-late blink" style="left:${so}%"></div>` : ''}
-      <div class="tl-now" style="left:${now}%"></div>
-      <span class="tl-l mono">${thaiDate(t0)}</span><span class="tl-n mono" style="left:${Math.min(now, 80)}%">วันนี้</span><span class="tl-r mono">หมด ${thaiDate(a.timeline.stockout)} ถึง ${thaiDate(t1)}</span></div>`;
-  }
-  return `<article class="alert alert-${a.level}">
-    <div class="alert-head">${chip(a.level)}<span class="muted small">${esc(a.topic)}</span></div>
-    <div class="alert-title">${esc(a.title)}</div>
-    ${compact ? '' : `<div class="small sec">${esc(a.detail)}</div>`}${compact ? '' : tl}
-    <div class="row-wrap"><a class="btn ${a.level === 'crit' ? 'btn-crit' : 'btn-line'}" href="#/${go}">${esc(a.action)}</a></div>
-  </article>`;
+// ผังสายการผลิต วัตถุดิบถึงลูกค้า ตั๋วซ้อนหนาตามจำนวนงานหรือล็อต ช่วงที่ของขาดกะพริบแดง
+function flowMap() {
+  const n = (lane, sts) => D.board.filter((c) => c.job.lane === lane && sts.includes(c.stage)).length;
+  const qcRaw = D.qcQueue.filter((q) => !isFG(q.it)).length;
+  const qcFg = D.qcQueue.filter((q) => isFG(q.it)).length;
+  const blocked = D.board.filter((c) => c.blocked && c.job.lane === 'ผลิต');
+  const supply = D.alerts.find((a) => a.kind === 'supply' && a.level === 'crit' && a.item === '91004') || D.alerts.find((a) => a.kind === 'supply' && a.level === 'crit');
+  const farms = S.base.suppliers.filter((s) => s.type === 'เกษตรกร').length;
+  const vendors = S.base.suppliers.filter((s) => s.type !== 'เกษตรกร').length;
+  const shipped = S.invoices.filter((v) => v.date <= S.today && daysBetween(v.date, S.today) < 7).length;
+  const st = [
+    { id: 'farm', name: 'เกษตรกร', n: farms, u: 'ราย', x: 10, y: 30 },
+    { id: 'recv', name: 'ตรวจรับ', n: n('แปรรูป', ['ตรวจรับ']), u: 'งาน', x: 190, y: 30 },
+    { id: 'wash', name: 'คัดแยก ล้าง', n: n('แปรรูป', ['คัดแยก ล้าง']), u: 'งาน', x: 370, y: 30 },
+    { id: 'dry', name: 'ตาก อบ บดร่อน', n: n('แปรรูป', ['ตาก อบ', 'ลดขนาด บดร่อน']), u: 'งาน', x: 550, y: 30 },
+    { id: 'qc1', name: 'รอปล่อยผ่าน วัตถุดิบ', n: qcRaw, u: 'ล็อต', x: 730, y: 30, lv: D.qcQueue.some((q) => !isFG(q.it) && q.waiting > CONFIG.qcWaitWarnDays) ? 'warn' : '' },
+    { id: 'store', name: 'คลัง', n: S.lots.filter(usable).length, u: 'ล็อต', x: 730, y: 190, lv: D.expiries.length ? 'warn' : '', tag: D.expiries.length ? `ใกล้หมดอายุ ${D.expiries.length} ล็อต` : '' },
+    { id: 'prod', name: 'ผลิต บรรจุ', n: n('ผลิต', ['จ่ายบันทึกการผลิต', 'เบิกวัตถุดิบ', 'ผลิต', 'บรรจุ']), u: 'งาน', x: 550, y: 190, lv: blocked.length ? 'crit' : '', tag: blocked.length ? `มีงานหยุด ${blocked.length} งาน` : '' },
+    { id: 'qc2', name: 'รอปล่อยผ่าน ยาสำเร็จรูป', n: qcFg, u: 'ล็อต', x: 370, y: 190 },
+    { id: 'ship', name: 'จ่ายออก 7 วัน', n: shipped, u: 'ใบ', x: 190, y: 190 },
+    { id: 'cust', name: 'ลูกค้า', n: S.base.customers.length, u: 'ราย', x: 10, y: 190, lv: D.overdue.length ? 'warn' : '', tag: D.overdue.length ? `ค้างเกินกำหนด ${D.overdue.length} ราย` : '' },
+  ];
+  const W = 140, H = 84;
+  const layers = (k) => (k <= 0 ? 0 : k < 5 ? 1 : k < 25 ? 2 : 3);
+  const card = (s) => {
+    const L = layers(s.n);
+    const back = Array.from({ length: L }, (_, i) => L - i).map((k) => `<rect class="st-layer" x="${s.x + k * 4}" y="${s.y + k * 4}" width="${W}" height="${H}" rx="5"/>`).join('');
+    const nTxt = s.n.toLocaleString('th-TH');
+    return `<g>${back}<rect class="st-card${s.lv ? ` st-${s.lv}` : ''}" x="${s.x}" y="${s.y}" width="${W}" height="${H}" rx="5"/>
+      <text class="st-name" x="${s.x + 12}" y="${s.y + 22}">${esc(s.name)}</text>
+      <text class="st-n" x="${s.x + 12}" y="${s.y + 56}">${nTxt}</text><text class="st-u" x="${s.x + 12 + nTxt.length * 14 + 6}" y="${s.y + 56}">${esc(s.u)}</text>
+      ${s.tag ? `<text class="${s.lv === 'crit' ? 'st-tag' : 'st-tag-w'}" x="${s.x + 12}" y="${s.y + 75}">${esc(s.tag)}</text>` : ''}</g>`;
+  };
+  const by = Object.fromEntries(st.map((s) => [s.id, s]));
+  const hLeg = (a, b, crit = false) => {
+    const A = by[a], B = by[b];
+    const y = A.y + H / 2;
+    const [x1, x2] = A.x < B.x ? [A.x + W + 4, B.x - 10] : [A.x - 4, B.x + W + 14];
+    return `<path class="${crit ? 'leg-crit' : 'leg'}" d="M${x1} ${y}H${x2}" marker-end="url(#${crit ? 'mc' : 'mh'})"/>`;
+  };
+  const legs = [hLeg('farm', 'recv'), hLeg('recv', 'wash'), hLeg('wash', 'dry'), hLeg('dry', 'qc1'),
+    `<path class="leg" d="M${730 + W / 2} ${30 + H + 6}V${190 - 12}" marker-end="url(#mh)"/>`,
+    hLeg('store', 'prod', blocked.length > 0), hLeg('prod', 'qc2'), hLeg('qc2', 'ship'), hLeg('ship', 'cust')].join('');
+  const tube = blocked.find((c) => c.blocked.startsWith('หลอด')) || blocked[0];
+  const gate = tube ? `<g class="gate-stamp" transform="translate(452 146) rotate(-4)"><rect width="236" height="30" rx="4"/><text x="118" y="20" text-anchor="middle">หยุด รอ${esc(tube.blocked.length > 20 ? `${tube.blocked.slice(0, 19)}…` : tube.blocked)}</text></g>` : '';
+  const feed = `<rect class="st-card${supply ? ' st-crit' : ''}" x="730" y="300" width="${W}" height="50" rx="5"/><text class="st-name" x="742" y="321">ผู้ขาย</text><text class="st-u" x="742" y="340">${vendors} ราย</text>
+    <path class="${supply ? 'leg-crit' : 'feed'}" d="M800 298V${190 + H + 10}" marker-end="url(#${supply ? 'mc' : 'mh'})"/>
+    ${supply ? `<text class="st-tag" x="720" y="318" text-anchor="end">${esc(supply.stub.ref)} คาดถึง ${esc(supply.fields[3][1])}</text><text class="st-tag" x="720" y="336" text-anchor="end">หลังวันที่ของหมด ${esc(supply.fields[2][1])}</text>` : ''}`;
+  const list = st.map((s) => `<li class="${s.lv === 'crit' ? 'is-crit' : ''}"><span><span class="t">${esc(s.name)}</span>${s.tag ? `<span class="d">${esc(s.tag)}</span>` : ''}</span><span><span class="num">${s.n.toLocaleString('th-TH')}</span> ${esc(s.u)}</span></li>`).join('');
+  return `<div class="map"><svg viewBox="0 0 880 360" role="img" aria-label="ผังสายการผลิต จากเกษตรกรถึงลูกค้า ${tube ? `งานผลิตหยุดรอ${esc(tube.blocked)}` : 'ไม่มีงานหยุด'}">
+    <defs><marker id="mh" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="leg-head" d="M0 0L8 4L0 8Z"/></marker>
+    <marker id="mc" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="leg-crit-head" d="M0 0L8 4L0 8Z"/></marker></defs>
+    ${legs}${st.map(card).join('')}${gate}${feed}</svg>
+    <ol class="map-list">${list}</ol></div>`;
 }
 
-function viewOverview() {
-  const active = S.jobs.filter((j) => ['waiting', 'running', 'qc'].includes(j.status));
+function viewOverview(p) {
+  const alerts = D.alerts;
+  const active1 = S.jobs.filter((j) => ['waiting', 'running', 'qc'].includes(j.status));
   const qcLate = D.qcQueue.filter((q) => q.waiting > CONFIG.qcWaitWarnDays).length;
-  const inv = [...D.itemStats.values()].filter((s) => s.level !== 'ok');
+  const inv = [...D.itemStats.values()].filter((s) => s.level !== 'ok' && active(s.it));
   const invCrit = inv.filter((s) => s.level === 'crit').length;
   const ms = monthSales();
   const last = ms[ms.length - 1], prev = ms[ms.length - 2];
   const ar = arAging();
   const ksd = keyStockoutDays();
-  const crit = D.alerts.filter((a) => a.level === 'crit').length;
-  const warn = D.alerts.filter((a) => a.level === 'warn').length;
-  const stageStrip = (lane) => LANES[lane].stages.map((st) => `<li><span class="mono">${D.board.filter((c) => c.job.lane === lane && c.stage === st).length}</span>${esc(st)}</li>`).join('');
-  return `
-  <div class="lead"><h1>วันนี้มี <span class="t-crit-text">${crit} เรื่องวิกฤต</span> และ ${warn} เรื่องเฝ้าระวัง</h1></div>
-  <section class="tiles" aria-label="ตัวเลขสำคัญ">
-    <div class="tile"><div class="tile-h"><span>งานในสายผลิต</span><span class="mono">K-01</span></div><div class="tile-n"><span class="mono">${active.length}</span><span>งาน</span></div><div class="small muted">แปรรูป ${active.filter((j) => j.lane === 'แปรรูป').length} ผลิต ${active.filter((j) => j.lane === 'ผลิต').length}</div></div>
-    <div class="tile ${qcLate ? 'tile-warn' : ''}"><div class="tile-h"><span>รอปล่อยผ่าน</span><span class="mono">K-02</span></div><div class="tile-n"><span class="mono">${D.qcQueue.length}</span><span>ล็อต</span></div>${qcLate ? chip('warn', `เกิน ${CONFIG.qcWaitWarnDays} วัน ${qcLate} ล็อต`) : '<div class="small muted">ไม่มีล็อตค้างนาน</div>'}</div>
-    <div class="tile ${invCrit ? 'tile-crit' : ''}"><div class="tile-h"><span>ของถึงจุดสั่งซื้อ</span><span class="mono">K-03</span></div><div class="tile-n"><span class="mono">${inv.length}</span><span>รายการ</span></div>${invCrit ? chip('crit', `วิกฤต ${invCrit} รายการ`) : '<div class="small muted">ไม่มีรายการวิกฤต</div>'}</div>
-    <div class="tile"><div class="tile-h"><span>ยอดขาย ${monthLabel(last.month)}</span><span class="mono">K-04</span></div><div class="tile-n"><span class="mono">${mill(last.total)}</span><span>ล้านบาท</span></div><div class="small muted">${prev.total ? `${last.total >= prev.total ? 'เพิ่ม' : 'ลด'} ${num(Math.abs((last.total / prev.total - 1) * 100))}% จาก ${monthLabel(prev.month)}` : ''}</div></div>
-    <div class="tile"><div class="tile-h"><span>ลูกหนี้ค้างชำระ</span><span class="mono">K-05</span></div><div class="tile-n"><span class="mono">${mill(ar.total)}</span><span>ล้านบาท</span></div><div class="small muted">เกินกำหนดชำระ ${mill(ar.overdue)} ล้าน</div></div>
-    <div class="tile"><div class="tile-h"><span>วันที่สินค้าหลักขาดสต็อก</span><span class="mono">K-06</span></div><div class="tile-n"><span class="mono">${ksd}</span><span>วัน</span></div><div class="small muted">ปีงบนี้ ตัวชี้วัด 2.1 ของ HC07</div></div>
-  </section>
-  <div class="cols">
-    <section class="panel panel-2" aria-label="ผังกระบวนการผลิต">
-      <div class="panel-h"><h2>ผังกระบวนการ วัตถุดิบถึงยา</h2><span class="mono muted small">DWG 01-A ข้อมูล ณ ${thaiDate(S.today)}</span></div>
-      ${schematic()}
-      <div class="strips"><div><div class="small muted">ฝ่ายแปรรูปสมุนไพร</div><ol class="strip">${stageStrip('แปรรูป')}</ol></div><div><div class="small muted">ฝ่ายผลิต</div><ol class="strip">${stageStrip('ผลิต')}</ol></div></div>
-    </section>
-    <section class="panel panel-1" aria-label="แจ้งเตือนอัจฉริยะ">
-      <div class="panel-h"><h2>หมายเหตุแจ้งเตือน</h2><span class="mono muted small">${D.alerts.length} เรื่อง</span></div>
-      ${D.alerts.slice(0, 4).map((a) => alertCard(a)).join('') || '<p class="muted">ไม่มีเรื่องต้องดูวันนี้</p>'}
-      ${D.alerts.length > 4 ? `<details class="more"><summary>ดูอีก ${D.alerts.length - 4} เรื่อง</summary>${D.alerts.slice(4).map((a) => alertCard(a, true)).join('')}</details>` : ''}
+  const fg = [...S.items.values()].filter(isFG);
+  const roomRows = ROOMS.filter((r) => r.id !== 'overview').map((r) => {
+    const a = roomAlerts(r.id);
+    const c = a.filter((x) => x.level === 'crit').length, w = a.filter((x) => x.level === 'warn').length;
+    return `<tr><td><a href="#/${r.id}">${esc(r.title)}</a></td><td class="r"><span class="num"${c ? ' style="color:var(--crit)"' : ''}>${c}</span></td><td class="r"><span class="num">${w}</span></td><td>${a[0] ? esc(a[0].title) : '<span class="muted">ไม่มี</span>'}</td></tr>`;
+  }).join('');
+  return head('ภาพรวมโรงงาน', alerts) + alertsBlock(alerts, 'ไม่มีเรื่องต้องตามวันนี้') + `
+  <div class="work">
+    <section class="panel" aria-labelledby="map-h"><div class="panel-h"><h2 id="map-h">สายการผลิต วัตถุดิบถึงลูกค้า</h2><span class="meta">งานในสาย ${num(active1.length)} งาน (แปรรูป ${active1.filter((j) => j.lane === 'แปรรูป').length} ผลิต ${active1.filter((j) => j.lane === 'ผลิต').length}) รอปล่อยผ่าน ${num(D.qcQueue.length)} ล็อต${qcLate ? ` เกิน ${CONFIG.qcWaitWarnDays} วัน ${qcLate} ล็อต` : ''}</span></div>${flowMap()}<p class="panel-foot">ตั๋วซ้อนหนา = งานหรือล็อตมาก ข้อมูล ณ ${esc(thaiDate(S.today))}</p></section>
+    <section class="panel" aria-labelledby="rs-h"><div class="panel-h"><h2 id="rs-h">แจ้งเตือนแยกตามฝ่าย</h2><span class="meta">ของถึงจุดสั่งซื้อ ${num(inv.length)} รายการ${invCrit ? ` วิกฤต ${invCrit}` : ''}</span></div>
+      ${tableWrap(`<table class="roomsum"><thead><tr><th>ห้องทำงาน</th><th class="r">วิกฤต</th><th class="r">เฝ้าระวัง</th><th>เรื่องแรก</th></tr></thead><tbody>${roomRows}</tbody></table>`, 'แจ้งเตือนแยกตามฝ่าย')}
+      <p class="panel-foot">ผลิตภัณฑ์ที่ผลิตอยู่ ${num(fg.filter(producing).length)} จาก ${fg.length} รายการ <a href="#/registers?tab=products">ดูทะเบียนผลิตภัณฑ์</a> กดชื่อฝ่ายเพื่อเข้าห้อง</p>
     </section>
   </div>
-  <div class="cols">
-    <section class="panel panel-2" aria-label="งานเด่นบนบอร์ด">
-      <div class="panel-h"><h2>บอร์ดงาน งานอยู่ขั้นไหน ในมือใคร</h2><a href="#/board">เปิดบอร์ดเต็ม</a></div>
-      <div class="mini-cards">${D.board.slice().sort((a, b) => (b.blocked ? 1 : 0) - (a.blocked ? 1 : 0) || b.days - a.days).slice(0, 5).map((c) => cardHTML(c, true)).join('')}</div>
-    </section>
-    <section class="panel panel-1" aria-label="ขายและลูกหนี้">
-      <div class="panel-h"><h2>ขายและลูกหนี้</h2><a href="#/sales">ดูรายลูกค้า</a></div>
-      <div class="small muted">ยอดขายรายเดือน (ล้านบาท)</div>${salesBars(ms)}
-      <div class="small muted" style="margin-top:12px">ลูกหนี้ค้างตามอายุหนี้ รวม ${mill(ar.total)} ล้านบาท</div>${agingBar(ar)}
-    </section>
+  ${laneBoard('แปรรูป', p, false)}${laneBoard('ผลิต', p, false)}
+  <div class="work" style="margin-top:16px">
+    <section class="panel" aria-labelledby="sl-h"><div class="panel-h"><h2 id="sl-h">ยอดขายรายเดือน</h2><span class="meta">${esc(monthLabel(last.month))} ถึงวันนี้ ${mill(last.total)} ล้านบาท${prev.total ? ` เดือนก่อน ${mill(prev.total)} ล้าน` : ''}</span></div>${salesBars(ms)}<p class="panel-foot">สินค้าหลักขาด ${ksd} วันในปีงบนี้ <a href="#/sales?tab=sales">ดูรายผลิตภัณฑ์</a></p></section>
+    <section class="panel" aria-labelledby="ar-h"><div class="panel-h"><h2 id="ar-h">ลูกหนี้ตามอายุหนี้</h2><span class="meta">รวม ${mill(ar.total)} ล้านบาท เกินกำหนด ${mill(ar.overdue)} ล้าน</span></div>${agingBar(ar)}<a class="more-link" href="#/sales?tab=ar">ดูรายลูกค้า</a></section>
   </div>`;
 }
 
-// ---------- 02 บอร์ดงาน ----------
-function cardHTML(c, mini = false) {
-  const lane = LANES[c.job.lane];
-  const idx = lane.stages.indexOf(c.stage);
-  const lot = c.job.out_lot ? `<span class="mono small">${esc(c.job.out_lot)}</span>` : `<span class="mono small muted">${esc(c.job.job_id)}</span>`;
-  const level = c.blocked ? 'crit' : c.stage === 'รอปล่อยผ่าน' && c.days > CONFIG.qcWaitWarnDays ? 'warn' : '';
-  return `<div class="card ${level ? `card-${level}` : ''}" ${mini ? '' : `draggable="true" data-job="${esc(c.job.job_id)}"`}>
-    ${mini ? `<div class="small muted">${esc(c.stage)}</div>` : ''}
-    <div class="card-t">${esc(c.it.name)}</div>
-    <div class="row-sb">${lot}<span class="small">${qty(c.it.code, c.job.qty)}</span></div>
-    ${c.blocked ? `<div class="small t-crit-text blink strong">หยุด รอ${esc(c.blocked)}</div>` : ''}
-    <div class="row-sb"><span class="who">${avatar(c.owner)}<span class="small">${esc(c.owner.name.replace(' (สมมุติ)', ''))}<br><span class="muted">${esc(c.owner.role)}</span></span></span><span class="small ${level === 'warn' ? 't-warn-dark strong' : 'muted'}">${c.days} วัน</span></div>
-    ${mini ? '' : `<div class="card-act"><button type="button" class="btn-ico" data-act="move" data-job="${esc(c.job.job_id)}" data-dir="-1" ${idx <= 0 ? 'disabled' : ''} aria-label="ย้อนไปขั้นก่อนหน้า">‹</button><button type="button" class="btn-ico" data-act="move" data-job="${esc(c.job.job_id)}" data-dir="1" ${idx >= lane.stages.length - 1 ? 'disabled' : ''} aria-label="ไปขั้นถัดไป">›</button></div>`}
-  </div>`;
+// ================= บอร์ดงาน =================
+function kcard(c, canMove, target) {
+  const L = LANES[c.job.lane];
+  const idx = L.stages.indexOf(c.stage);
+  const late = c.stage === 'รอปล่อยผ่าน' && c.days > CONFIG.qcWaitWarnDays;
+  return `<article class="kcard${c.blocked ? ' is-blocked' : ''}${target === c.job.job_id ? ' is-target' : ''}" data-job="${esc(c.job.job_id)}" ${canMove ? 'draggable="true"' : ''}>
+    <div class="k-top"><span class="mono">${esc(c.job.job_id)}</span>${c.job.out_lot ? `<span class="mono">${esc(c.job.out_lot)}</span>` : ''}</div>
+    <h3 class="k-t">${esc(c.it.name)}</h3>
+    <div class="k-q"><span>จำนวน</span><span>${qh(c.it.code, c.job.qty)}</span></div>
+    ${c.blocked ? `<div class="k-block">หยุด รอ${esc(c.blocked)}</div>` : ''}
+    <div class="k-act">${who(c.owner)}<span class="days${late ? ' warn' : ''}">${c.days} วัน</span></div>
+    ${canMove ? `<div class="k-move"><button type="button" class="btn-ico" data-act="move" data-job="${esc(c.job.job_id)}" data-dir="-1" ${idx <= 0 ? 'disabled' : ''} aria-label="ย้อน ${esc(c.job.job_id)} ไปขั้นก่อนหน้า">${I.left}</button><button type="button" class="btn-ico" data-act="move" data-job="${esc(c.job.job_id)}" data-dir="1" ${idx >= L.stages.length - 1 ? 'disabled' : ''} aria-label="ย้าย ${esc(c.job.job_id)} ไปขั้นถัดไป">${I.right}</button></div>` : ''}
+  </article>`;
+}
+function laneBoard(laneKey, p, allowMove = true) {
+  const L = LANES[laneKey];
+  const q = (p.get('q') || '').trim().toLowerCase();
+  const only = p.get('only') || '';
+  const target = p.get('job');
+  const all = D.board.filter((c) => c.job.lane === laneKey);
+  const stuck = (c) => c.blocked || (c.stage === 'รอปล่อยผ่าน' && c.days > CONFIG.qcWaitWarnDays);
+  const cards = all.filter((c) => (!q || c.it.name.toLowerCase().includes(q) || c.job.job_id.toLowerCase().includes(q) || (c.job.out_lot || '').includes(q)) && (only !== 'stuck' || stuck(c)));
+  const canMove = allowMove && can(`move${laneKey}`);
+  const hint = canMove ? 'ย้ายการ์ดทีละขั้นด้วยปุ่มลูกศรหรือลากวาง' : `ย้ายได้เฉพาะ${CAN[`move${laneKey}`].join(' หรือ ')}`;
+  const here = (location.hash.match(/^#\/([^?]*)/) || [])[1] || (laneKey === 'ผลิต' ? 'prod' : 'process');
+  const base = new URLSearchParams(location.hash.split('?')[1] || '');
+  const link = (o) => { const x = new URLSearchParams(base); for (const [k, v] of Object.entries(o)) { if (v) x.set(k, v); else x.delete(k); } x.delete('job'); return `#/${here}?${x}`; };
+  return `<section class="panel lane" aria-labelledby="lane-${laneKey}"><div class="panel-h"><h2 id="lane-${laneKey}">บอร์ดงาน${esc(L.title)} งานอยู่ขั้นไหน ในมือใคร</h2><span class="meta">${cards.length} จาก ${all.length} งาน ${esc(hint)}</span></div>
+    <div class="filters">
+      <a class="fchip" href="${link({ only: '' })}" ${only ? '' : 'aria-current="true"'}>ทุกงาน <span class="num">${all.length}</span></a>
+      <a class="fchip" href="${link({ only: 'stuck' })}" ${only === 'stuck' ? 'aria-current="true"' : ''}>ติดขัดหรือรอนาน <span class="num">${all.filter(stuck).length}</span></a>
+      <form class="search" data-form="boardSearch" data-here="${esc(here)}" role="search"><label class="sr" for="bq-${laneKey}">ค้นงานบนบอร์ด${esc(L.title)}</label><input class="in" id="bq-${laneKey}" name="q" value="${esc(p.get('q') || '')}" placeholder="ค้นชื่อยา เลขงาน เลขที่ผลิต"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form>
+      ${deptLegend()}</div>
+    <div class="kanban">${L.stages.map((st) => {
+      const cs = cards.filter((c) => c.stage === st);
+      return `<section class="kcol${cs.length ? '' : ' is-empty'}" data-drop="${esc(st)}" data-lane="${esc(laneKey)}" aria-label="${esc(st)} ${cs.length} งาน"><div class="kcol-h"><strong>${esc(st)}</strong><span class="num">${cs.length}</span></div><div class="kcol-s">${esc(L.sop[st])}</div><div class="kcol-b">${cs.map((c) => kcard(c, canMove, target)).join('') || '<div class="k-empty">ไม่มีงาน</div>'}</div></section>`;
+    }).join('')}</div></section>`;
 }
 
-function viewBoard(params) {
-  const show = params.get('lane') || 'all';
-  const lanes = Object.entries(LANES).filter(([k]) => show === 'all' || show === k);
-  const user = currentUser();
-  return `
-  <div class="lead"><h1>บอร์ดงาน</h1><p class="muted">ย้ายการ์ดได้ทีละขั้นด้วยปุ่มลูกศรหรือลากวาง ผู้ใช้ตอนนี้: <strong>${esc(user.name)}</strong> ${esc(user.role)} ขั้น "ตรวจสอบแล้ว" ย้ายได้เฉพาะหัวหน้าฝ่ายควบคุมคุณภาพ (SOP-QC-06, SOP-QC-07)</p></div>
-  <div class="seg-ctl" role="group" aria-label="เลือกฝ่าย">${[['all', 'ทุกฝ่าย'], ['แปรรูป', 'ฝ่ายแปรรูปสมุนไพร'], ['ผลิต', 'ฝ่ายผลิต']].map(([k, t]) => `<a href="#/board?lane=${encodeURIComponent(k)}" ${show === k ? 'aria-current="true"' : ''}>${t}</a>`).join('')}</div>
-  ${lanes.map(([k, lane]) => `
-    <section class="panel lane" aria-label="${esc(lane.title)}">
-      <div class="panel-h"><h2>${esc(lane.title)}</h2><span class="small muted">${D.board.filter((c) => c.job.lane === k).length} งาน</span></div>
-      <div class="kanban">${lane.stages.map((st) => {
-        const cards = D.board.filter((c) => c.job.lane === k && c.stage === st);
-        return `<div class="col" data-drop="${esc(st)}" data-lane="${esc(k)}"><div class="col-h"><span class="strong">${esc(st)}</span><span class="mono small">${cards.length}</span></div><div class="small muted">${esc(lane.sop[st])}</div>${cards.map((c) => cardHTML(c)).join('') || '<div class="empty small muted">ไม่มีงาน</div>'}</div>`;
-      }).join('')}</div>
-    </section>`).join('')}`;
+export function bomNeeds(code, q) {
+  return bomOf(code).map((b) => {
+    const need = round(b.in_item, b.qty_per_unit * q);
+    const have = (S.lotsByItem.get(b.in_item) || []).filter(usable).reduce((s, l) => s + l.qty_left, 0);
+    return { code: b.in_item, need, have, ok: have + 1e-9 >= need };
+  });
 }
 
 function moveJob(jobId, dir) {
@@ -271,277 +201,373 @@ function moveJob(jobId, dir) {
   const idx = lane.stages.indexOf(card.stage);
   const to = lane.stages[idx + dir];
   if (!to) return;
-  if (dir < 0 && (card.stage === 'รอปล่อยผ่าน' || card.stage === 'ตรวจสอบแล้ว')) return toast('งานที่ส่งตรวจแล้วย้อนกลับจากบอร์ดไม่ได้ ใช้หน้าควบคุมคุณภาพแทน', 'warn');
-  if (to === 'ตรวจสอบแล้ว') return releaseLot(card.job.out_lot, 'ผ่าน', '');
-  const user = currentUser();
-  const movers = CAN[`move${card.job.lane}`];
-  if (!movers.includes(user.role)) return toast(`การ์ด${lane.title}ย้ายได้เฉพาะ ${movers.join(' หรือ ')} เปลี่ยนผู้ใช้ที่มุมขวาบน`, 'warn');
+  if (dir < 0 && (card.stage === 'รอปล่อยผ่าน' || card.stage === 'ตรวจสอบแล้ว')) return toast('งานที่ส่งตรวจแล้วย้อนกลับจากบอร์ดไม่ได้ ใช้ห้องฝ่ายควบคุมคุณภาพแทน', 'warn');
+  if (to === 'ตรวจสอบแล้ว') return toast('ขั้นตรวจสอบแล้วเปลี่ยนได้จากห้องฝ่ายควบคุมคุณภาพเท่านั้น หลังบันทึกผลตรวจและหัวหน้าฝ่ายอนุมัติ (SOP-QC-06, SOP-QC-07)', 'warn');
+  if (!can(`move${card.job.lane}`)) return deny(`move${card.job.lane}`, `ย้ายการ์ด${lane.title}`);
   const job = card.job;
   const fx = { stage: [{ job_id: jobId, stage: to }] };
   let summary = `ย้าย ${jobId} ${card.it.name} จาก "${card.stage}" ไป "${to}"`;
   if (job.status === 'waiting' && dir > 0) {
-    const needs = S.base.bom.filter((b) => b.out_item === job.item_code).map((b) => ({ code: b.in_item, q: round(b.in_item, b.qty_per_unit * job.qty) }));
-    for (const n of needs) {
-      const have = (S.lotsByItem.get(n.code) || []).filter(usable).reduce((s, l) => s + l.qty_left, 0);
-      if (have + 1e-9 < n.q) return toast(`วัตถุดิบไม่พอ: ${S.items.get(n.code).name} มี ${qty(n.code, have)} ต้องใช้ ${qty(n.code, n.q)}`, 'crit');
-    }
+    const needs = bomNeeds(job.item_code, job.qty);
+    const lack = needs.find((n) => !n.ok);
+    if (lack) return toast(`วัตถุดิบไม่พอ: ${S.items.get(lack.code).name} มี ${qty(lack.code, lack.have)} ต้องใช้ ${qty(lack.code, lack.need)}`, 'crit');
     fx.moves = []; fx.inputs = [];
     for (const n of needs) {
-      const { picks } = fefoPick((S.lotsByItem.get(n.code) || []).filter(usable), n.q);
-      for (const p of picks) {
-        const q = round(n.code, p.qty);
-        fx.moves.push(newMove({ item_code: n.code, lot_no: p.lot_no, type: 'จ่าย', qty: q, party: `งานผลิต ${jobId}`, doc_no: REQ_FORM[S.items.get(n.code).kind] || 'FM-28' }));
-        fx.inputs.push({ job_id: jobId, lot_no: p.lot_no, item_code: n.code, qty: q });
+      const { picks } = fefoPick((S.lotsByItem.get(n.code) || []).filter(usable), n.need);
+      for (const pk of picks) {
+        const q = round(n.code, pk.qty);
+        fx.moves.push(newMove({ item_code: n.code, lot_no: pk.lot_no, type: 'จ่าย', qty: q, party: `งาน${card.job.lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป'} ${jobId}`, doc_no: REQ_FORM[S.items.get(n.code).kind] || 'FM-28' }));
+        fx.inputs.push({ job_id: jobId, lot_no: pk.lot_no, item_code: n.code, qty: q });
       }
     }
     fx.jobs = [{ job_id: jobId, patch: { status: 'running', start_date: S.today, end_date: addDays(S.today, 3), wait_reason: '' } }];
-    summary += ` เบิกวัตถุดิบตามสูตร ${needs.length} รายการ แบบ FEFO`;
+    summary += ` เบิกวัตถุดิบตามสูตร ${needs.length} รายการ แบบหมดอายุก่อนจ่ายก่อน`;
   }
+  let lotNo = '';
   if (to === 'รอปล่อยผ่าน' && !job.out_lot) {
     const it = S.items.get(job.item_code);
-    const lotNo = nextLotNo(job.item_code);
+    lotNo = nextLotNo(job.item_code);
     fx.lots = [{ lot_no: lotNo, item_code: job.item_code, qty_in: job.qty, date_in: S.today, exp_date: it.shelf_days ? addDays(S.today, it.shelf_days) : '', status: 'รอปล่อยผ่าน', release_date: '', source: 'ผลิต', source_ref: jobId }];
     fx.moves = [...(fx.moves || []), newMove({ item_code: job.item_code, lot_no: lotNo, type: 'รับ', qty: job.qty, party: lane.title, doc_no: `บันทึกการผลิต ${jobId}` })];
     fx.jobs = [{ job_id: jobId, patch: { status: 'qc', out_lot: lotNo, end_date: S.today } }];
     summary += ` ออกเลขที่ผลิต ${lotNo} ติดป้ายรอปล่อยผ่าน`;
   }
   commit({ type: 'stage', summary, effects: fx });
-  toast(summary);
-  route();
+  const room = card.job.lane === 'ผลิต' ? 'prod' : 'process';
+  if (lotNo) showSlip(room, { k: 'สำเนาเลขที่ผลิต SOP-PD-07', no: lotNo, title: `${card.it.name} ${qty(card.it.code, job.qty)}`, lines: [`งาน ${jobId} ส่งเข้าคิวฝ่ายควบคุมคุณภาพแล้ว ของยังเบิกไม่ได้จนกว่าจะปล่อยผ่าน`], stamp: ['รอปล่อยผ่าน', 'crit'] });
+  else if (fx.inputs) showSlip(room, { k: 'สำเนาใบเบิกวัตถุดิบ', no: jobId, title: `เบิกวัตถุดิบตามสูตร ${card.it.name}`, lines: [`${fx.inputs.length} ล็อต เรียงหมดอายุก่อนจ่ายก่อน`], stamp: ['จ่ายแล้ว', 'ink'], links: [['พิมพ์ใบเบิก FM-28 ถึง FM-33', `#/doc?type=req&job=${encodeURIComponent(jobId)}`]] });
+  else toast(summary);
+  nav.route();
+}
+
+// ================= ฝ่ายแปรรูปสมุนไพร และ ฝ่ายผลิต =================
+function viewLaneRoom(p, room) {
+  const lane = room.lane;
+  const L = LANES[lane];
+  const alerts = roomAlerts(room.id);
+  const tab = p.get('tab') || 'board';
+  const word = lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป';
+  const tabs = lane === 'ผลิต' ? [['board', 'บอร์ดงาน'], ['new', 'เปิดงานผลิต'], ['materials', 'วัตถุดิบพอไหม'], ['plan', 'พยากรณ์และแผน']] : [['board', 'บอร์ดงาน'], ['new', 'เปิดงานแปรรูป'], ['farm', 'รับจากเกษตรกร'], ['plan', 'พยากรณ์และแผน']];
+  const acts = `<a class="btn btn-solid" href="#/${room.id}?tab=new">เปิดงาน${word}</a>`;
+  let body;
+  if (tab === 'new') body = jobForm(room, p);
+  else if (tab === 'materials') body = materialsCheck();
+  else if (tab === 'farm') body = farmReceipts();
+  else if (tab === 'plan') body = viewPlan(p, lane, room.id);
+  else body = laneBoard(lane, p);
+  return head(`ห้องทำงาน${L.title}`, alerts, acts) + slipBlock(room.id) + alertsBlock(alerts) + seg(room.id, tabs, tab) + body;
+}
+
+function jobForm(room, p) {
+  const lane = room.lane;
+  const key = `open${lane}`;
+  const items = [...S.items.values()].filter((i) => i.make === 'make' && i.lane === lane && producing(i));
+  const sug = items.find((i) => D.itemStats.get(i.code)?.suggestQty > 0);
+  const code = items.some((i) => i.code === p.get('item')) ? p.get('item') : (sug || items[0]).code;
+  const it = S.items.get(code);
+  const st = D.itemStats.get(code);
+  const q = Number(p.get('qty')) || st.suggestQty || it.batch_or_pack || 0;
+  const needs = bomNeeds(code, q);
+  const first = LANES[lane].stages[0];
+  return `<section class="panel" aria-labelledby="jf-h"><div class="panel-h"><h2 id="jf-h">เปิดงาน${lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป'}</h2><span class="meta">เลขงานถัดไป <span class="mono">${esc(nextJobId())}</span> เลือกได้ ${items.length} รายการที่ผลิตอยู่</span></div>
+    ${roleNote(key, 'เปิดงาน')}
+    <form data-form="job" data-room="${room.id}" class="form-grid">
+      ${itemPicker({ name: 'item', items, value: code, act: 'jobItem', label: `รายการที่จะ${lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป'}`, id: room.id })}
+      <label class="f">จำนวน (${esc(it.unit)}) รุ่นละ ${esc(qty(code, it.batch_or_pack || 0))}<input class="in" name="qty" type="number" min="1" step="any" required value="${q}" data-act="jobQty"></label>
+      <div class="form-note">พอใช้อีก ${Number.isFinite(st.cover) ? `${num(Math.floor(st.cover))} วัน` : 'ไม่มีการเบิก'} จำนวนอย่างต่ำ ${esc(qty(code, st.pol.rop))} แนะนำ ${st.suggestQty ? esc(qty(code, st.suggestQty)) : 'ยังไม่ถึงจุดที่ต้องเพิ่ม'} งานจะเริ่มที่ขั้น "${esc(first)}" <a href="#/product?code=${code}">ดูสูตรและต้นทุน</a>
+        ${tableWrap(`<table style="margin-top:8px"><thead><tr><th>วัตถุดิบตามสูตร</th><th class="r">ต้องใช้</th><th class="r">ตรวจสอบแล้วในคลัง</th><th>พอไหม</th></tr></thead><tbody>${needs.map((n) => `<tr><td>${esc(S.items.get(n.code).name)}</td><td class="r">${qh(n.code, n.need)}</td><td class="r">${qh(n.code, n.have)}</td><td>${n.ok ? chip('พอ', 'ok') : chip('ไม่พอ', 'crit')}</td></tr>`).join('')}</tbody></table>`, 'วัตถุดิบตามสูตร')}
+      </div>
+      <div class="form-actions"><button type="submit" class="btn btn-solid" ${can(key) ? '' : 'disabled'}>เปิดงาน</button></div>
+    </form></section>`;
+}
+
+function materialsCheck() {
+  const jobs = S.jobs.filter((j) => j.lane === 'ผลิต' && j.status === 'waiting');
+  const rows = jobs.flatMap((j) => { const ns = bomNeeds(j.item_code, j.qty); return ns.map((n, i) => `<tr${n.ok ? '' : ' class="is-target"'}>${i === 0 ? `<td rowspan="${ns.length}"><span class="mono">${esc(j.job_id)}</span><span class="sub-l">${esc(S.items.get(j.item_code).name)} ${esc(qty(j.item_code, j.qty))}</span></td>` : ''}<td>${esc(S.items.get(n.code).name)}</td><td class="r">${qh(n.code, n.need)}</td><td class="r">${qh(n.code, n.have)}</td><td>${n.ok ? chip('พอ', 'ok') : chip('ไม่พอ', 'crit')}</td></tr>`); });
+  return `<section class="panel" aria-labelledby="mc-h"><div class="panel-h"><h2 id="mc-h">วัตถุดิบสำหรับงานที่รอเบิก</h2><span class="meta">${jobs.length} งาน เทียบสูตรกับของที่ตรวจสอบแล้วในคลัง</span></div>
+    ${rows.length ? tableWrap(`<table><thead><tr><th>งาน</th><th>วัตถุดิบ</th><th class="r">ต้องใช้</th><th class="r">ตรวจสอบแล้ว</th><th>พอไหม</th></tr></thead><tbody>${rows.join('')}</tbody></table>`, 'วัตถุดิบสำหรับงานที่รอเบิก') : '<p class="empty">ไม่มีงานรอเบิก งานที่เปิดใหม่จะขึ้นที่นี่</p>'}</section>`;
+}
+
+function farmReceipts() {
+  const from = addDays(S.today, -60);
+  const lots = S.lots.filter((l) => S.items.get(l.item_code)?.kind === 'สด' && l.date_in > from && l.date_in <= S.today).sort((a, b) => b.date_in.localeCompare(a.date_in));
+  const farms = new Map();
+  for (const l of lots) { const k = l.source_ref; const x = farms.get(k) || { n: 0, kg: 0 }; x.n += 1; x.kg += l.qty_in; farms.set(k, x); }
+  return `<div class="work"><section class="panel" aria-labelledby="fr-h"><div class="panel-h"><h2 id="fr-h">วัตถุดิบสดที่รับเข้า 60 วันล่าสุด</h2><span class="meta">ใบรับซื้อวัตถุดิบสมุนไพร FM-23 กดเลขที่เพื่อพิมพ์</span></div>
+    ${tableWrap(`<table><thead><tr><th>วันที่รับ</th><th>เลขที่รับ</th><th>สมุนไพร</th><th>เกษตรกร</th><th class="r">จำนวน</th><th>ป้าย</th></tr></thead><tbody>${lots.slice(0, 60).map((l) => `<tr><td class="nowrap">${esc(thaiDate(l.date_in))}</td><td class="code"><a href="#/doc?type=fm23&lot=${l.lot_no}">${esc(l.lot_no)}</a></td><td>${esc(S.items.get(l.item_code).name)}</td><td>${esc(supName(l.source_ref))}</td><td class="r">${qh(l.item_code, l.qty_in)}</td><td>${lotChip(l.status)}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">ไม่มีรายการ</td></tr>'}</tbody></table>`, 'วัตถุดิบสดที่รับเข้า')}</section>
+    <section class="panel" aria-labelledby="fm-h"><div class="panel-h"><h2 id="fm-h">ส่งของมาจากใคร</h2><span class="meta">60 วันล่าสุด</span></div>
+    ${tableWrap(`<table><thead><tr><th>เกษตรกร</th><th class="r">ครั้ง</th><th class="r">รวม</th></tr></thead><tbody>${[...farms].sort((a, b) => b[1].kg - a[1].kg).map(([k, x]) => `<tr><td>${esc(supName(k))}</td><td class="r"><span class="num">${x.n}</span></td><td class="r"><span class="num">${num(x.kg)}</span><span class="u">กก.</span></td></tr>`).join('')}</tbody></table>`, 'เกษตรกรที่ส่งของ')}</section></div>`;
+}
+
+// ================= ฝ่ายจัดซื้อและคลัง =================
+function itemStatus(s) {
+  const ex = D.expiries.find((e) => e.it.code === s.it.code);
+  if (!active(s.it)) return { lv: 'exp', t: 'เลิกใช้' };
+  if (isFG(s.it) && !producing(s.it)) return { lv: 'exp', t: s.it.status };
+  if (s.level === 'crit') return { lv: 'crit', t: s.poViews.some((v) => v.verdict.level === 'crit') ? 'ของจะขาด' : 'วิกฤต' };
+  if (ex) return { lv: ex.level, t: ex.daysLeft <= 0 ? 'มีล็อตหมดอายุ' : 'ใกล้หมดอายุ' };
+  if (s.level === 'warn') return { lv: 'warn', t: 'ถึงจุดสั่งซื้อ' };
+  return { lv: 'ok', t: 'ปกติ' };
+}
+
+function viewStore(p) {
+  const alerts = roomAlerts('store');
+  const tab = p.get('tab') || 'stock';
+  const acts = `<a class="btn" href="#/store?tab=issue">เบิกออก</a><a class="btn" href="#/store?tab=buy&new=1">เขียนใบขอซื้อ</a><a class="btn btn-solid" href="#/store?tab=receive">รับเข้า FM-01</a>`;
+  const tabs = [['stock', 'คงคลัง'], ['card', 'บัตรคุม FM-02'], ['receive', 'รับเข้า FM-01'], ['issue', 'เบิกออก'], ['buy', 'จัดซื้อ'], ['plan', 'พยากรณ์และแผน']];
+  let body;
+  if (tab === 'card') body = stockCard(p);
+  else if (tab === 'receive') body = receiveForm(p);
+  else if (tab === 'issue') body = issueForm(p);
+  else if (tab === 'buy') body = viewBuy(p);
+  else if (tab === 'plan') body = viewPlan(p, 'store', 'store');
+  else body = storeStock(p);
+  return head('ห้องทำงานฝ่ายจัดซื้อและคลัง', alerts, acts) + slipBlock('store') + alertsBlock(alerts) + seg('store', tabs, tab) + body;
+}
+
+function poStubs(limit = 5) {
+  const open = [...D.itemStats.values()].flatMap((s) => s.poViews.map((v) => ({ s, v }))).sort((a, b) => a.v.prob - b.v.prob);
+  return `<section class="side-list" aria-labelledby="ps-h"><div class="side-h"><h2 id="ps-h">ใบสั่งซื้อค้างรับ</h2><span class="meta">เรียงจากโอกาสมาทันน้อยสุด</span></div>
+    <ul class="pstubs">${open.slice(0, limit).map(({ s, v }) => `<li class="pstub"><a href="#/store?tab=buy&po=${encodeURIComponent(v.po.po_no)}"><span class="ps-b"><span class="ps-t"><span class="mono">${esc(v.po.po_no)}</span> ${esc(s.it.name)}</span><span class="ps-s">${esc(short(v.sl.supplier.name))} คาดถึง ${esc(thaiDate(v.expected))}</span></span><span class="ps-p lv-${v.verdict.level}">${num(v.prob * 100)}%<small>${esc(v.verdict.text)}</small></span></a></li>`).join('') || '<li class="empty">ไม่มีใบสั่งซื้อค้าง</li>'}</ul>
+    ${open.length > limit ? `<a class="more-link" href="#/store?tab=buy">ดูทั้ง ${open.length} ใบ</a>` : ''}</section>`;
+}
+function expiringList(limit = 5) {
+  const xs = D.expiries.slice(0, limit);
+  return `<section class="side-list" aria-labelledby="ex-h"><div class="side-h"><h2 id="ex-h">ล็อตใกล้หมดอายุ</h2><span class="meta">ภายใน ${CONFIG.expiryWarnDays} วัน ${D.expiries.length} ล็อต</span></div>
+    ${xs.length ? `<ul class="mini">${xs.map((e) => `<li><span class="t">${esc(e.it.name)}<span class="d"><span class="mono">${esc(e.lot.lot_no)}</span> คงเหลือ ${esc(qty(e.it.code, e.lot.qty_left))}</span></span>${chip(e.daysLeft <= 0 ? 'หมดอายุแล้ว' : `${e.daysLeft} วัน`, e.level)}</li>`).join('')}</ul>` : '<p class="empty">ไม่มีล็อตใกล้หมดอายุ</p>'}</section>`;
+}
+
+const KINDS = ['ยารับประทาน', 'ยาใช้ภายนอก', 'แห้ง', 'ผง', 'บรรจุภัณฑ์', 'เคมีภัณฑ์', 'ฉลาก'];
+function storeStock(p) {
+  const kind = p.get('kind') || '', lv = p.get('lv') || '', qRaw = (p.get('q') || '').trim(), q = qRaw.toLowerCase();
+  const showAll = p.get('all') === '1';
+  const all = [...D.itemStats.values()].filter((s) => active(s.it)).map((s) => ({ s, stt: itemStatus(s) }));
+  const inKind = all.filter(({ s }) => !kind || s.it.kind === kind);
+  const order = { crit: 0, warn: 1, ok: 2, exp: 3 };
+  const rows = inKind.filter(({ s, stt }) => (!lv || stt.lv === lv) && (!q || s.it.name.toLowerCase().includes(q) || s.it.code.includes(q)))
+    .sort((a, b) => order[a.stt.lv] - order[b.stt.lv] || a.s.it.code.localeCompare(b.s.it.code));
+  const LIMIT = 60;
+  const shown = showAll ? rows : rows.slice(0, LIMIT);
+  const link = (o) => { const x = new URLSearchParams({ tab: 'stock', kind, lv, q: qRaw, ...o }); for (const [k, v] of [...x]) if (!v) x.delete(k); return `#/store?${x}`; };
+  const kindChips = [['', 'ทั้งหมด', all.length], ...KINDS.map((k) => [k, k, all.filter(({ s }) => s.it.kind === k).length])]
+    .map(([k, t, n]) => `<a class="fchip" href="${link({ kind: k })}" ${k === kind ? 'aria-current="true"' : ''}>${esc(t)} <span class="num">${n}</span></a>`).join('');
+  const lvChips = [['crit', 'วิกฤต'], ['warn', 'เฝ้าระวัง']].map(([k, t]) => `<a class="fchip" href="${link({ lv: lv === k ? '' : k })}" ${lv === k ? 'aria-current="true"' : ''}>${t} <span class="num">${inKind.filter((x) => x.stt.lv === k).length}</span></a>`).join('');
+  return `<div class="work"><section class="panel" aria-labelledby="st-h"><div class="panel-h"><h2 id="st-h">คงคลังของฝ่าย</h2><span class="meta">${rows.length} รายการ คิดใหม่ทุกวันจากรายการเบิก ${CONFIG.demandWindowDays} วันล่าสุด</span></div>
+    <div class="filters" aria-label="กรองตามประเภท">${kindChips}</div>
+    <div class="filters" aria-label="กรองตามสถานะและค้นหา">${lvChips}
+      <form class="search" data-form="filter" role="search"><label class="sr" for="q">ค้นหารายการหรือรหัส</label><input class="in" id="q" name="q" value="${esc(qRaw)}" placeholder="ค้นชื่อหรือรหัส"><input type="hidden" name="kind" value="${esc(kind)}"><input type="hidden" name="lv" value="${esc(lv)}"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form>
+      <button type="button" class="btn btn-sm" data-act="export">${I.download}ส่งออก CSV</button></div>
+    ${tableWrap(`<table><thead><tr><th>รหัส</th><th>รายการ</th><th class="r">ตรวจสอบแล้ว</th><th class="r">ใช้ต่อวัน</th><th class="r">พอใช้</th><th class="r">จำนวนอย่างต่ำ</th><th class="r">ค้างรับ ค้างผลิต</th><th>สถานะ</th></tr></thead><tbody>
+    ${shown.map(({ s, stt }) => `<tr><td class="code">${s.it.code}</td><td><a href="#/store?tab=card&item=${s.it.code}">${esc(s.it.name)}</a>${s.quarantine ? `<span class="sub-l">รอปล่อยผ่าน ${esc(qty(s.it.code, s.quarantine))}</span>` : ''}</td>
+      <td class="r">${qh(s.it.code, s.released)}</td><td class="r"><span class="num">${num(s.u.mean, 1)}</span></td><td class="r">${Number.isFinite(s.cover) ? `<span class="num">${num(Math.floor(s.cover))}</span><span class="u">วัน</span>` : '<span class="muted">-</span>'}</td>
+      <td class="r"><span class="num">${num(s.pol.rop)}</span></td><td class="r">${s.onOrder ? `<span class="num">${num(s.onOrder)}</span>` : '<span class="muted">-</span>'}</td><td>${chip(stt.t, stt.lv)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">ไม่พบรายการตามที่กรอง ลองล้างตัวกรอง</td></tr>'}
+    </tbody></table>`, 'คงคลังของฝ่าย')}
+    ${rows.length > shown.length ? `<a class="more-link" href="${link({ all: '1' })}">แสดงทั้งหมด ${rows.length} รายการ</a>` : ''}
+    <p class="note">จำนวนอย่างต่ำ = จุดสั่งซื้อ (ใช้วันละ × ระยะส่งเฉลี่ย + สต็อกกันชน) ตรงกับช่องในบัตรคุม FM-02 สูตรและที่มาอยู่ในแท็บจัดซื้อ</p></section>
+    <div class="stack">${poStubs()}${expiringList()}</div></div>`;
+}
+
+function stockCard(p) {
+  const code = S.items.get(p.get('item')) && D.itemStats.get(p.get('item')) ? p.get('item') : '91004';
+  const it = S.items.get(code);
+  const st = D.itemStats.get(code);
+  const ms = (S.movesByItem.get(code) || []).slice().sort((a, b) => a.date.localeCompare(b.date) || a.move_id.localeCompare(b.move_id));
+  let bal = 0;
+  const lines = ms.map((m) => { const inQ = ['รับ', 'ยกมา'].includes(m.type) ? m.qty : 0; const outQ = inQ ? 0 : m.qty; bal += inQ - outQ; return { m, inQ, outQ, bal, exp: S.lotMap.get(m.lot_no)?.exp_date }; }).slice(-60).reverse();
+  const where = isFG(it) ? 'คลังยาสำเร็จรูป' : it.kind === 'บรรจุภัณฑ์' || it.kind === 'ฉลาก' ? 'คลังบรรจุภัณฑ์' : 'คลังวัตถุดิบ';
+  const items = [...D.itemStats.values()].map((s) => s.it);
+  return `<section class="panel" aria-labelledby="fm2-h"><div class="panel-h"><h2 id="fm2-h">บัตรคุมวัสดุ FM-02 บันทึกการรับ-จ่าย บัญชีควบคุมวัสดุ</h2>
+    <a class="btn btn-sm" href="#/doc?type=fm02&item=${code}">${I.print}พิมพ์ FM-02</a></div>
+    <form class="form-grid" data-form="pick" data-to="store" data-tab="card" style="margin-bottom:12px">${itemPicker({ name: 'item', items, value: code, act: 'pickItem', label: 'รายการ', id: 'card' })}</form>
+    <dl class="fields" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));margin-bottom:14px">
+      <div><dt>ประเภท</dt><dd>${esc(it.kind)}</dd></div><div><dt>ชื่อหรือชนิดวัสดุ</dt><dd>${esc(it.name)}</dd></div><div><dt>รหัส</dt><dd class="num">${code}</dd></div><div><dt>หน่วยที่นับ</dt><dd>${esc(it.unit)}</dd></div>
+      <div><dt>จำนวนอย่างสูง</dt><dd class="num">${num(st.pol.S)}</dd></div><div><dt>จำนวนอย่างต่ำ</dt><dd class="num">${num(st.pol.rop)}</dd></div><div><dt>ที่เก็บ</dt><dd>${where}</dd></div><div><dt>คงเหลือรวม</dt><dd>${esc(qty(code, st.released + st.quarantine + st.rejected))}</dd></div></dl>
+    ${tableWrap(`<table><thead><tr><th>วัน เดือน ปี</th><th>รับจาก จ่ายให้</th><th>เลขที่เอกสาร</th><th>Lot No.</th><th>Exp.</th><th class="r">รับ</th><th class="r">จ่าย</th><th class="r">คงเหลือ</th><th>ผู้บันทึก</th></tr></thead><tbody>
+    ${lines.map((x) => `<tr${x.m.move_id.startsWith('W') ? ' class="row-new"' : ''}><td class="nowrap">${esc(thaiDate(x.m.date))}${x.m.move_id.startsWith('W') ? ` ${chip('ใหม่', 'ink')}` : ''}</td><td>${esc(x.m.party)}</td><td>${esc(x.m.doc_no)}</td><td class="code">${esc(x.m.lot_no)}</td><td class="nowrap">${x.exp ? esc(thaiDate(x.exp)) : '-'}</td>
+    <td class="r">${x.inQ ? `<span class="num">${qn(code, x.inQ)}</span>` : ''}</td><td class="r">${x.outQ ? `<span class="num">${qn(code, x.outQ)}</span>${x.m.type !== 'จ่าย' ? `<span class="u">${esc(x.m.type)}</span>` : ''}` : ''}</td><td class="r"><span class="num"><b>${qn(code, x.bal)}</b></span></td><td>${esc(short(staff(x.m.user_id).name))}</td></tr>`).join('')}
+    </tbody></table>`, 'บัตรคุมวัสดุ FM-02')}
+    <p class="note">แสดง 60 รายการล่าสุด ใหม่สุดอยู่บน คงเหลือรวมทุกสถานะ (รวมของรอปล่อยผ่าน)</p></section>`;
+}
+
+function receiveForm(p) {
+  const buyables = [...S.items.values()].filter((i) => (i.make === 'buy' || i.make === 'farm') && active(i));
+  const code = buyables.some((i) => i.code === p.get('item')) ? p.get('item') : '91004';
+  const it = S.items.get(code);
+  const openPOs = S.pos.filter((x) => x.item_code === code && !x.received_date && x.lot_no !== 'ก่อนเริ่มระบบ');
+  const sups = (it.make === 'farm' ? S.base.suppliers.filter((s) => s.type === 'เกษตรกร') : S.base.suppliers.filter((s) => s.type !== 'เกษตรกร')).filter(active);
+  const poSel = p.get('po') && openPOs.some((x) => x.po_no === p.get('po')) ? p.get('po') : (openPOs[0]?.po_no || '');
+  const po = openPOs.find((x) => x.po_no === poSel);
+  return `<section class="panel" aria-labelledby="rv-h"><div class="panel-h"><h2 id="rv-h">รับเข้า FM-01 บันทึกการตรวจรับ</h2><span class="meta">เลขรับถัดไป <span class="mono">${esc(nextLotNo(code))}</span></span></div>
+    ${roleNote('receive', 'บันทึกรับเข้า')}
+    <form data-form="receive" class="form-grid">
+      ${itemPicker({ name: 'item', items: buyables, value: code, act: 'recvItem', label: 'รายการ', id: 'recv' })}
+      <label class="f">อ้างใบสั่งซื้อ<select class="in" name="po"><option value="">ไม่อ้าง</option>${openPOs.map((x) => `<option value="${x.po_no}" ${x.po_no === poSel ? 'selected' : ''}>${x.po_no} สั่ง ${esc(thaiDate(x.order_date))} ${esc(qty(code, x.qty))}</option>`).join('')}</select></label>
+      <label class="f">${it.make === 'farm' ? 'เกษตรกร (FM-23)' : 'ผู้ขาย'}<select class="in" name="supplier">${sups.map((s) => `<option value="${s.supplier_id}" ${s.supplier_id === (po ? po.supplier_id : it.supplier_id) ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" min="0.01" step="any" required value="${po ? po.qty : ''}"></label>
+      <label class="f">วันหมดอายุตามฉลากผู้ขาย<input class="in" name="exp" type="date"></label>
+      <div class="form-note">เมื่อบันทึก ระบบออกเลข${it.make === 'farm' ? 'ที่รับตาม SOP-PD-07' : 'รับ'} <span class="mono">${esc(nextLotNo(code))}</span> ติดป้าย ${lotChip('รอปล่อยผ่าน')} ส่งเข้าคิวฝ่ายควบคุมคุณภาพ และถ้าอ้างใบสั่งซื้อที่มาจากใบขอซื้อ ใบขอซื้อจะเลื่อนไปขั้นตรวจรับพัสดุ ของจะเบิกได้หลังหัวหน้าฝ่ายควบคุมคุณภาพปล่อยผ่าน (ระเบียบ V8.9 ข้อ 77)</div>
+      <div class="form-actions"><button type="submit" class="btn btn-solid" ${can('receive') ? '' : 'disabled'}>บันทึกรับเข้า</button></div>
+    </form></section>`;
+}
+
+function issueForm(p) {
+  const items = [...D.itemStats.values()].filter((s) => s.released > 0).map((s) => s.it);
+  const code = items.some((i) => i.code === p.get('item')) ? p.get('item') : items[0]?.code;
+  const it = S.items.get(code);
+  const lots = (S.lotsByItem.get(code) || []).filter(usable).sort((a, b) => (a.exp_date || '9999').localeCompare(b.exp_date || '9999') || a.date_in.localeCompare(b.date_in));
+  const doc = REQ_FORM[it.kind];
+  return `<section class="panel" aria-labelledby="is-h"><div class="panel-h"><h2 id="is-h">เบิกออก ${esc(doc)} ${isFG(it) ? 'ใบเบิกยาสำเร็จรูป' : 'ใบเบิก'}</h2><span class="meta">เบิกได้เฉพาะของที่ตรวจสอบแล้ว เรียงหมดอายุก่อนจ่ายก่อน</span></div>
+    ${roleNote('issue', 'บันทึกเบิก')}
+    <form data-form="issue" class="form-grid">
+      ${itemPicker({ name: 'item', items, value: code, act: 'issueItem', label: 'รายการ', id: 'issue' })}
+      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" min="0.01" step="any" required></label>
+      <label class="f wide">จ่ายให้${isFG(it) ? ' (เลือกลูกค้าเพื่อออกใบส่งของอัตโนมัติ)' : ''}<input class="in" name="to" required list="toList" placeholder="${isFG(it) ? 'เช่น คลังเวชภัณฑ์ รพ.ก (สมมุติ)' : 'เช่น งานผลิต J70-350'}"></label>
+      <datalist id="toList">${isFG(it) ? S.base.customers.filter(active).map((c) => `<option value="${esc(c.name)}">`).join('') : S.jobs.filter((j) => j.status !== 'done').slice(-80).map((j) => `<option value="งานผลิต ${j.job_id}">`).join('')}</datalist>
+      <div class="form-note"><strong>ล็อตที่ระบบจะเบิก เรียงวันหมดอายุก่อน (FEFO)</strong><div class="fefo">${lots.map((l) => `<div><span class="mono">${esc(l.lot_no)}</span><span>หมดอายุ ${l.exp_date ? esc(thaiDate(l.exp_date)) : '-'}</span><span>${qh(code, l.qty_left)}</span></div>`).join('') || 'ไม่มีล็อตที่ตรวจสอบแล้ว'}</div></div>
+      <div class="form-actions"><button type="submit" class="btn btn-solid" ${can('issue') ? '' : 'disabled'}>บันทึกเบิก</button></div>
+    </form></section>`;
+}
+
+// ================= ฝ่ายควบคุมคุณภาพ =================
+function viewQC(p) {
+  const alerts = roomAlerts('qc');
+  const tab = p.get('tab') || 'queue';
+  const tabs = [['queue', 'คิวรอปล่อยผ่าน'], ['released', 'บันทึกการปล่อยผ่าน FM-35'], ['rejected', 'ล็อตไม่ผ่าน']];
+  let body;
+  if (tab === 'released') body = qcReleased(p);
+  else if (tab === 'rejected') body = qcRejected();
+  else body = qcQueue(p);
+  return head('ห้องทำงานฝ่ายควบคุมคุณภาพ', alerts) + slipBlock('qc') + alertsBlock(alerts) + seg('qc', tabs, tab) + body;
+}
+function qcQueue(p) {
+  const target = p.get('lot');
+  const isHead = can('release'), isChecker = can('qcRecord');
+  const whoNote = isHead ? 'หัวหน้าฝ่ายควบคุมคุณภาพ อนุมัติปล่อยผ่านหรือไม่ผ่านได้ หลังเจ้าหน้าที่บันทึกผลตรวจ' : isChecker ? 'เจ้าหน้าที่ฝ่ายควบคุมคุณภาพ บันทึกผลตรวจได้ การอนุมัติเป็นของหัวหน้าฝ่าย' : 'ดูได้อย่างเดียว';
+  const resultCell = (q) => {
+    if (q.result) return `${chip(q.result.result, q.result.result === 'ผ่านเกณฑ์' ? 'ok' : 'crit')}<span class="sub-l">${esc(short(staff(q.result.checker_id).name))} ${esc(thaiDate(q.result.date))} ${esc(q.result.note || '')}</span>`;
+    if (isChecker) return `<form data-form="qc" data-lot="${esc(q.lot.lot_no)}" class="inline-form"><label class="sr" for="qr-${esc(q.lot.lot_no)}">ผลตรวจ ${esc(q.lot.lot_no)}</label><select class="in in-sm" id="qr-${esc(q.lot.lot_no)}" name="result"><option>ผ่านเกณฑ์</option><option>ไม่ผ่านเกณฑ์</option></select><label class="sr" for="qn-${esc(q.lot.lot_no)}">หมายเหตุ ${esc(q.lot.lot_no)}</label><input class="in in-sm" id="qn-${esc(q.lot.lot_no)}" name="note" placeholder="หมายเหตุ เช่น ความชื้น 8%"><button type="submit" class="btn btn-sm">บันทึกผล</button></form>`;
+    return '<span class="muted">รอเจ้าหน้าที่บันทึกผลตรวจ</span>';
+  };
+  const decideCell = (q) => {
+    if (!isHead) return `<span class="muted">${q.result ? 'รอหัวหน้าฝ่ายอนุมัติ' : '-'}</span>`;
+    const id = `rs-${q.lot.lot_no}`;
+    const pass = q.result && q.result.result === 'ผ่านเกณฑ์';
+    return `<div class="inline-form"><button type="button" class="btn btn-solid btn-sm" data-act="release" data-lot="${esc(q.lot.lot_no)}" data-res="ผ่าน" ${pass ? '' : 'disabled'}>ปล่อยผ่าน</button><button type="button" class="btn btn-crit btn-sm" data-act="release" data-lot="${esc(q.lot.lot_no)}" data-res="ไม่ผ่าน" ${q.result ? '' : 'disabled'}>ไม่ผ่าน</button>
+      <label class="sr" for="${esc(id)}">เหตุผลที่ไม่ผ่าน ${esc(q.lot.lot_no)}</label><input class="in in-sm" id="${esc(id)}" placeholder="เหตุผลถ้าไม่ผ่าน" value="${q.result && q.result.result !== 'ผ่านเกณฑ์' ? esc(q.result.note || '') : ''}" ${q.result ? '' : 'disabled'}></div>${q.result ? '' : '<span class="sub-l">รอผลตรวจก่อน</span>'}`;
+  };
+  return `<section class="panel" aria-labelledby="qq-h"><div class="panel-h"><h2 id="qq-h">คิวรอปล่อยผ่าน</h2><span class="meta">${D.qcQueue.length} ล็อต ผู้ใช้ตอนนี้: ${esc(whoNote)}</span></div>
+  ${tableWrap(`<table class="stack-t qc-t"><thead><tr><th>ป้าย</th><th>เลขที่</th><th>รายการ</th><th class="r">จำนวน</th><th>รับหรือผลิตเสร็จ</th><th class="r">รอมาแล้ว</th><th>ผลตรวจ (เจ้าหน้าที่)</th><th>อนุมัติ (หัวหน้าฝ่าย)</th></tr></thead><tbody>
+  ${D.qcQueue.map((q) => `<tr${target === q.lot.lot_no ? ' class="is-target" data-target' : ''}><td>${lotChip('รอปล่อยผ่าน')}</td><td class="code">${esc(q.lot.lot_no)}</td><td class="t-name">${esc(q.it.name)}<span class="sub-l">${esc(q.lot.source)} ${esc(q.lot.source === 'รับซื้อ' ? supName(q.lot.source_ref) : q.lot.source_ref)}</span></td><td class="r" data-l="จำนวน">${qh(q.it.code, q.lot.qty_left)}</td><td class="nowrap" data-l="รับหรือผลิตเสร็จ">${esc(thaiDate(q.lot.date_in))}</td>
+  <td class="r" data-l="รอมาแล้ว"><span class="num"${q.waiting > CONFIG.qcWaitWarnDays ? ' style="color:var(--warn)"' : ''}>${q.waiting}</span><span class="u">วัน</span></td><td class="t-wide" data-l="ผลตรวจ (เจ้าหน้าที่)">${resultCell(q)}</td><td class="t-wide" data-l="อนุมัติ (หัวหน้าฝ่าย)">${decideCell(q)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">ไม่มีล็อตรอปล่อยผ่าน</td></tr>'}
+  </tbody></table>`, 'คิวรอปล่อยผ่าน')}
+  <p class="note">ป้ายแดง รอปล่อยผ่าน เปลี่ยนเป็นป้ายเขียว ตรวจสอบแล้ว หรือ ไม่ผ่าน ได้โดยหัวหน้าฝ่ายควบคุมคุณภาพเท่านั้น คนบันทึกผลกับคนอนุมัติเป็นคนละคน (SOP-QC-06, SOP-QC-07, ระเบียบ V8.9 ข้อ 89 และ 92)</p></section>`;
+}
+function qcReleased(p) {
+  const kind = p.get('kind') || 'fg';
+  const rs = S.releases.filter((r) => (kind === 'all' ? true : kind === 'fg' ? isFG(S.items.get(r.item_code)) : !isFG(S.items.get(r.item_code)))).slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 30);
+  const fchip = (k, t) => `<a class="fchip" href="#/qc?tab=released&kind=${k}" ${k === kind ? 'aria-current="true"' : ''}>${t}</a>`;
+  return `<section class="panel" aria-labelledby="qr-h"><div class="panel-h"><h2 id="qr-h">บันทึกการปล่อยผ่าน${kind === 'fg' ? 'ผลิตภัณฑ์สำเร็จรูป FM-35' : ''}</h2><a class="btn btn-sm" href="#/doc?type=fm35&month=${S.today.slice(0, 7)}">${I.print}พิมพ์ FM-35 เดือนนี้</a></div>
+  <div class="filters">${fchip('fg', 'ยาสำเร็จรูป')}${fchip('raw', 'วัตถุดิบ')}${fchip('all', 'ทั้งหมด')}</div>
+  ${tableWrap(`<table><thead><tr><th>ว/ด/ป</th><th>รายการ</th><th>Lot No.</th><th>ผลการตรวจ</th><th>ผู้ตรวจ</th><th>ผู้อนุมัติปล่อยผ่าน</th><th>หมายเหตุ</th></tr></thead><tbody>
+  ${rs.map((r) => `<tr><td class="nowrap">${esc(thaiDate(r.date))}</td><td>${esc(S.items.get(r.item_code).name)}</td><td class="code">${esc(r.lot_no)}</td><td>${r.result === 'ผ่าน' ? lotChip('ตรวจสอบแล้ว') : lotChip('ไม่ผ่าน')}</td><td>${esc(short(staff(r.checker_id).name))}</td><td>${esc(short(staff(r.approver_id).name))}</td><td>${esc(r.note)}</td></tr>`).join('')}
+  </tbody></table>`, 'บันทึกการปล่อยผ่าน')}</section>`;
+}
+function qcRejected() {
+  const lots = S.lots.filter((l) => l.status === 'ไม่ผ่าน').sort((a, b) => (b.release_date || '').localeCompare(a.release_date || '')).slice(0, 30);
+  return `<section class="panel" aria-labelledby="rj-h"><div class="panel-h"><h2 id="rj-h">ล็อตไม่ผ่าน แยกเก็บ รอส่งคืนหรือทำลาย</h2><span class="meta">SOP-QC-12</span></div>
+  ${lots.length ? tableWrap(`<table><thead><tr><th>Lot No.</th><th>รายการ</th><th class="r">คงเหลือ</th><th>วันที่ตัดสิน</th><th>ที่มา</th><th>ป้าย</th></tr></thead><tbody>${lots.map((l) => `<tr><td class="code">${esc(l.lot_no)}</td><td>${esc(S.items.get(l.item_code).name)}</td><td class="r">${qh(l.item_code, l.qty_left)}</td><td class="nowrap">${esc(thaiDate(l.release_date))}</td><td>${esc(l.source)}</td><td>${lotChip('ไม่ผ่าน')}</td></tr>`).join('')}</tbody></table>`, 'ล็อตไม่ผ่าน') : '<p class="empty">ยังไม่มีล็อตไม่ผ่าน</p>'}</section>`;
 }
 
 function releaseLot(lotNo, result, reason) {
-  const user = currentUser();
-  if (!CAN.release.includes(user.role)) return toast('ปล่อยผ่านหรือไม่ผ่านได้เฉพาะหัวหน้าฝ่ายควบคุมคุณภาพ (SOP-QC-06, SOP-QC-07, ระเบียบ V8.9 ข้อ 89) เปลี่ยนผู้ใช้ที่มุมขวาบน', 'warn');
+  if (!can('release')) return deny('release', 'ปล่อยผ่านหรือไม่ผ่าน');
   const lot = S.lotMap.get(lotNo);
   if (!lot || lot.status !== 'รอปล่อยผ่าน') return toast('ล็อตนี้ไม่ได้อยู่ในสถานะรอปล่อยผ่าน', 'warn');
+  const res = S.qcResults.get(lotNo);
+  if (!res) return toast('ยังไม่มีผลตรวจจากเจ้าหน้าที่ฝ่ายควบคุมคุณภาพ อนุมัติไม่ได้', 'warn');
+  if (res.checker_id === S.user) return toast('คนบันทึกผลกับคนอนุมัติต้องเป็นคนละคน', 'warn');
+  if (result === 'ผ่าน' && res.result !== 'ผ่านเกณฑ์') return toast('ผลตรวจไม่ผ่านเกณฑ์ ปล่อยผ่านไม่ได้', 'warn');
   if (result === 'ไม่ผ่าน' && !reason) return toast('ใส่เหตุผลที่ไม่ผ่านก่อน', 'warn');
   const it = S.items.get(lot.item_code);
   const fx = {
     status: [{ lot_no: lotNo, status: result === 'ผ่าน' ? 'ตรวจสอบแล้ว' : 'ไม่ผ่าน', release_date: S.today }],
-    releases: [{ date: S.today, lot_no: lotNo, item_code: lot.item_code, result, checker_id: 'U04', approver_id: S.user, note: reason || '' }],
+    releases: [{ date: S.today, lot_no: lotNo, item_code: lot.item_code, result, checker_id: res.checker_id, approver_id: S.user, note: reason || res.note || '' }],
   };
   const job = S.jobs.find((j) => j.out_lot === lotNo);
   if (job) { fx.jobs = [{ job_id: job.job_id, patch: { status: 'done', release_date: S.today } }]; fx.stage = [{ job_id: job.job_id, stage: 'ตรวจสอบแล้ว' }]; }
-  const summary = `${result === 'ผ่าน' ? 'ปล่อยผ่าน เปลี่ยนป้ายเป็นตรวจสอบแล้ว' : 'ไม่ผ่าน แยกเก็บ'} ล็อต ${lotNo} ${it.name}`;
-  commit({ type: 'release', summary, reason, effects: fx });
-  toast(summary, result === 'ผ่าน' ? 'ok' : 'warn');
-  route();
+  commit({ type: 'release', summary: `${result === 'ผ่าน' ? 'ปล่อยผ่าน เปลี่ยนป้ายเป็นตรวจสอบแล้ว' : 'ไม่ผ่าน แยกเก็บ'} ล็อต ${lotNo} ${it.name}`, reason, effects: fx });
+  showSlip('qc', { k: isFG(it) ? 'สำเนาบันทึกการปล่อยผ่าน FM-35' : 'สำเนาบันทึกการปล่อยผ่าน SOP-QC-06', no: lotNo, title: `${it.name} ${qty(lot.item_code, lot.qty_left)}`, lines: [`ผู้ตรวจ ${short(staff(res.checker_id).name)} ผู้อนุมัติ ${short(currentUser().name)} ${thaiDate(S.today)}`, result === 'ผ่าน' ? 'ของล็อตนี้เบิกได้แล้ว ฝ่ายจัดซื้อและคลังเห็นทันที' : `เหตุผล ${reason} แยกเก็บรอส่งคืนหรือทำลาย`], stamp: result === 'ผ่าน' ? ['ตรวจสอบแล้ว', 'ok'] : ['ไม่ผ่าน', 'crit'], links: isFG(it) ? [['พิมพ์ FM-35 เดือนนี้', `#/doc?type=fm35&month=${S.today.slice(0, 7)}`]] : [] });
+  nav.route();
 }
 
-// ---------- 03 คลัง ----------
-function viewStock(params) {
-  const tab = params.get('tab') || 'list';
-  const tabs = [['list', 'คงคลัง'], ['card', 'บัตรคุมวัสดุ FM-02'], ['receive', 'รับเข้า FM-01'], ['issue', 'เบิกออก ใบเบิก']];
-  const nav = `<div class="seg-ctl" role="tablist" aria-label="งานคลัง">${tabs.map(([k, t]) => `<a role="tab" href="#/stock?tab=${k}" ${tab === k ? 'aria-current="true" aria-selected="true"' : 'aria-selected="false"'}>${t}</a>`).join('')}</div>`;
-  let body = '';
-  if (tab === 'list') body = stockList(params);
-  if (tab === 'card') body = stockCard(params);
-  if (tab === 'receive') body = receiveForm(params);
-  if (tab === 'issue') body = issueForm(params);
-  return `<div class="lead"><h1>คลัง รับเข้า เบิกออก</h1><p class="muted">ฝ่ายจัดซื้อและคลัง ของทุกล็อตที่รับเข้าหรือผลิตเสร็จติดป้ายรอปล่อยผ่านทันที (ระเบียบ V8.9 ข้อ 77) เบิกได้เฉพาะของที่ตรวจสอบแล้ว เรียงจากวันหมดอายุก่อน (FEFO)</p></div>${nav}${body}`;
-}
-
-const KINDS = ['ยารับประทาน', 'ยาใช้ภายนอก', 'แห้ง', 'ผง', 'บรรจุภัณฑ์', 'เคมีภัณฑ์', 'ฉลาก'];
-function stockList(params) {
-  const kind = params.get('kind') || '';
-  const rows = [...D.itemStats.values()].filter((s) => !kind || s.it.kind === kind).sort((a, b) => ({ crit: 0, warn: 1, ok: 2 }[a.level] - { crit: 0, warn: 1, ok: 2 }[b.level]) || a.it.code.localeCompare(b.it.code));
-  return `<section class="panel"><div class="panel-h"><h2>คงคลังรายรายการ</h2>
-    <div class="row-wrap"><label class="small" for="kind">ประเภท</label><select id="kind" data-act="kind">${['', ...KINDS].map((k) => `<option value="${k}" ${k === kind ? 'selected' : ''}>${k || 'ทั้งหมด'}</option>`).join('')}</select>
-    <button type="button" class="btn btn-line" data-act="export">ส่งออก CSV</button></div></div>
-    ${tableWrap(`<table><thead><tr><th>รหัส</th><th>รายการ</th><th>ประเภท</th><th class="r">ตรวจสอบแล้ว</th><th class="r">รอปล่อยผ่าน</th><th class="r">ใช้ต่อวัน</th><th class="r">พอใช้</th><th class="r">จำนวนอย่างต่ำ</th><th class="r">จำนวนอย่างสูง</th><th class="r">ค้างรับ ค้างผลิต</th><th>สถานะ</th></tr></thead><tbody>
-    ${rows.map((s) => `<tr><td class="mono">${s.it.code}</td><td><a href="#/stock?tab=card&item=${s.it.code}">${esc(s.it.name)}</a></td><td>${esc(s.it.kind)}</td>
-      <td class="r">${qty(s.it.code, s.released)}</td><td class="r">${s.quarantine ? qty(s.it.code, s.quarantine) : '-'}</td><td class="r">${num(s.u.mean, 1)}</td>
-      <td class="r">${Number.isFinite(s.cover) ? `${num(Math.floor(s.cover))} วัน` : '-'}</td><td class="r">${num(s.pol.rop)}</td><td class="r">${num(s.pol.S)}</td><td class="r">${s.onOrder ? num(s.onOrder) : '-'}</td><td>${chip(s.level)}</td></tr>`).join('')}
-    </tbody></table>`)}
-    <p class="small muted">จำนวนอย่างต่ำ = จุดสั่งซื้อ ใช้วันละ × ระยะส่งเฉลี่ย + สต็อกกันชน และจำนวนอย่างสูง = ระดับเติมเต็ม รอบทบทวน ${CONFIG.reviewDays} วัน คิดใหม่ทุกวันจากรายการเบิก ${CONFIG.demandWindowDays} วันล่าสุด สูตรอยู่ในหน้าจัดซื้อ</p></section>`;
-}
-
-function stockCard(params) {
-  const code = params.get('item') || '91004';
-  const it = S.items.get(code);
-  const st = D.itemStats.get(code);
-  const ms = S.moves.filter((m) => m.item_code === code).sort((a, b) => a.date.localeCompare(b.date) || a.move_id.localeCompare(b.move_id));
-  let bal = 0;
-  const lines = ms.map((m) => { const q = m.qty; const inQ = ['รับ', 'ยกมา'].includes(m.type) ? q : 0; const outQ = inQ ? 0 : q; bal += inQ - outQ; const lot = S.lotMap.get(m.lot_no); return { m, inQ, outQ, bal, exp: lot?.exp_date }; }).slice(-60);
-  const opts = [...D.itemStats.values()].map((s) => `<option value="${s.it.code}" ${s.it.code === code ? 'selected' : ''}>${s.it.code} ${esc(s.it.name)}</option>`).join('');
-  return `<section class="panel"><div class="panel-h"><h2>บัตรคุมวัสดุ (FM-02 บันทึกการรับ-จ่าย บัญชีควบคุมวัสดุ)</h2><div class="row-wrap"><label class="small" for="cardItem">รายการ</label><select id="cardItem" data-act="cardItem">${opts}</select></div></div>
-  <dl class="fm-head"><div><dt>ประเภท</dt><dd>${esc(it.kind)}</dd></div><div><dt>ชื่อหรือชนิดวัสดุ</dt><dd>${esc(it.name)}</dd></div><div><dt>รหัส</dt><dd class="mono">${code}</dd></div><div><dt>หน่วยที่นับ</dt><dd>${esc(it.unit)}</dd></div>
-  <div><dt>จำนวนอย่างสูง</dt><dd class="mono">${num(st.pol.S)}</dd></div><div><dt>จำนวนอย่างต่ำ</dt><dd class="mono">${num(st.pol.rop)}</dd></div><div><dt>ที่เก็บ</dt><dd>${['ยารับประทาน', 'ยาใช้ภายนอก'].includes(it.kind) ? 'คลังยาสำเร็จรูป' : it.kind === 'บรรจุภัณฑ์' || it.kind === 'ฉลาก' ? 'คลังบรรจุภัณฑ์' : 'คลังวัตถุดิบ'}</dd></div></dl>
-  ${tableWrap(`<table><thead><tr><th>วัน เดือน ปี</th><th>รับจาก/จ่ายให้</th><th>เลขที่เอกสาร</th><th>Lot No.</th><th>Exp.</th><th class="r">รับ</th><th class="r">จ่าย</th><th class="r">คงเหลือ</th><th>ผู้บันทึก</th></tr></thead><tbody>
-  ${lines.map((x) => `<tr${x.m.move_id.startsWith('W') ? ' class="row-new"' : ''}><td>${thaiDate(x.m.date)}</td><td>${esc(x.m.party)}</td><td>${esc(x.m.doc_no)}</td><td class="mono">${esc(x.m.lot_no)}</td><td>${x.exp ? thaiDate(x.exp) : '-'}</td>
-  <td class="r">${x.inQ ? (INT_UNITS.has(it.unit) ? num(x.inQ) : num2(x.inQ)) : ''}</td><td class="r">${x.outQ ? (INT_UNITS.has(it.unit) ? num(x.outQ) : num2(x.outQ)) : ''}${x.m.type !== 'จ่าย' && x.outQ ? ` <span class="small muted">${esc(x.m.type)}</span>` : ''}</td><td class="r strong">${(INT_UNITS.has(it.unit) ? num(x.bal) : num2(x.bal))}</td><td>${esc(staff(x.m.user_id).name.replace(' (สมมุติ)', ''))}</td></tr>`).join('')}
-  </tbody></table>`)}
-  <p class="small muted">แสดง 60 รายการล่าสุด คงเหลือรวมทุกสถานะ (รวมของรอปล่อยผ่าน)</p></section>`;
-}
-
-function receiveForm(params) {
-  const buyables = [...S.items.values()].filter((i) => i.make === 'buy' || i.make === 'farm');
-  const code = params.get('item') || '91004';
-  const it = S.items.get(code);
-  const openPOs = S.pos.filter((p) => p.item_code === code && !p.received_date && p.lot_no !== 'ก่อนเริ่มระบบ');
-  const sups = it.make === 'farm' ? S.base.suppliers.filter((s) => s.type === 'เกษตรกร') : S.base.suppliers.filter((s) => s.type !== 'เกษตรกร');
-  return `<section class="panel form-panel"><div class="panel-h"><h2>รับเข้า (FM-01 บันทึกการตรวจรับ)</h2><span class="small muted">ผู้ใช้: ${esc(currentUser().name)} ${esc(currentUser().role)}</span></div>
-  <form data-form="receive" class="form-grid">
-    <label>รายการ<select name="item" data-act="recvItem">${buyables.map((i) => `<option value="${i.code}" ${i.code === code ? 'selected' : ''}>${i.code} ${esc(i.name)}</option>`).join('')}</select></label>
-    <label>อ้างใบสั่งซื้อ<select name="po">${['<option value="">ไม่อ้าง</option>', ...openPOs.map((p) => `<option value="${p.po_no}">${p.po_no} สั่ง ${thaiDate(p.order_date)} ${qty(code, p.qty)}</option>`)].join('')}</select></label>
-    <label>${it.make === 'farm' ? 'เกษตรกร (FM-23)' : 'ผู้ขาย'}<select name="supplier">${sups.map((s) => `<option value="${s.supplier_id}" ${s.supplier_id === it.supplier_id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
-    <label>จำนวน (${esc(it.unit)})<input name="qty" type="number" min="0.01" step="any" required value="${openPOs[0] ? openPOs[0].qty : ''}"></label>
-    <label>วันหมดอายุตามฉลากผู้ขาย<input name="exp" type="date"></label>
-    <div class="form-note small muted">เมื่อบันทึก ระบบออกเลข${it.make === 'farm' ? 'ที่รับตาม SOP-PD-07' : 'รับ'} ${esc(nextLotNo(code))} ติดป้ายรอปล่อยผ่าน และส่งเข้าคิวฝ่ายควบคุมคุณภาพ</div>
-    <div class="row-wrap"><button type="submit" class="btn btn-solid">บันทึกรับเข้า</button></div>
-  </form></section>`;
-}
-
-function issueForm(params) {
-  const items = [...D.itemStats.values()].filter((s) => s.released > 0);
-  const code = params.get('item') || items[0]?.it.code;
-  const it = S.items.get(code);
-  const lots = (S.lotsByItem.get(code) || []).filter(usable).sort((a, b) => (a.exp_date || '9999').localeCompare(b.exp_date || '9999') || a.date_in.localeCompare(b.date_in));
-  const doc = REQ_FORM[it.kind];
-  return `<section class="panel form-panel"><div class="panel-h"><h2>เบิกออก (${esc(doc)} ${it.kind === 'ยารับประทาน' || it.kind === 'ยาใช้ภายนอก' ? 'ใบเบิกยาสำเร็จรูป' : 'ใบเบิก'})</h2><span class="small muted">ผู้ใช้: ${esc(currentUser().name)} ${esc(currentUser().role)}</span></div>
-  <form data-form="issue" class="form-grid">
-    <label>รายการ<select name="item" data-act="issueItem">${items.map((s) => `<option value="${s.it.code}" ${s.it.code === code ? 'selected' : ''}>${s.it.code} ${esc(s.it.name)}</option>`).join('')}</select></label>
-    <label>จำนวน (${esc(it.unit)})<input name="qty" type="number" min="0.01" step="any" required data-act="issueQty"></label>
-    <label>จ่ายให้<input name="to" required placeholder="เช่น งานผลิต J70-350 หรือ คลังเวชภัณฑ์ รพ.ก" list="toList"></label>
-    <datalist id="toList">${S.jobs.filter((j) => j.status !== 'done').map((j) => `<option value="งานผลิต ${j.job_id}">`).join('')}${S.base.customers.map((c) => `<option value="${esc(c.name)}">`).join('')}</datalist>
-    <div class="form-note"><div class="small strong">ล็อตที่ระบบจะเบิก เรียงหมดอายุก่อนจ่ายก่อน (FEFO)</div><div id="fefo" class="small">${lots.map((l) => `<div class="row-sb"><span class="mono">${esc(l.lot_no)}</span><span>หมดอายุ ${l.exp_date ? thaiDate(l.exp_date) : '-'}</span><span>${qty(code, l.qty_left)}</span></div>`).join('') || 'ไม่มีล็อตที่ตรวจสอบแล้ว'}</div></div>
-    <div class="row-wrap"><button type="submit" class="btn btn-solid">บันทึกเบิก</button></div>
-  </form></section>`;
-}
-
-function submitReceive(form) {
-  if (!CAN.receive.includes(currentUser().role)) return toast('รับเข้าได้เฉพาะเจ้าหน้าที่ฝ่ายจัดซื้อและคลัง เปลี่ยนผู้ใช้ที่มุมขวาบน', 'warn');
-  const f = new FormData(form);
-  const code = f.get('item'), po = f.get('po'), q = round(code, Number(f.get('qty')));
-  if (!(q > 0)) return toast('ใส่จำนวนก่อน', 'warn');
-  const it = S.items.get(code);
-  const sup = S.base.suppliers.find((s) => s.supplier_id === f.get('supplier'));
-  const lotNo = nextLotNo(code);
-  const exp = f.get('exp') || (it.shelf_days ? addDays(S.today, it.shelf_days) : '');
-  const fx = {
-    lots: [{ lot_no: lotNo, item_code: code, qty_in: q, date_in: S.today, exp_date: exp, status: 'รอปล่อยผ่าน', release_date: '', source: po ? 'ใบสั่งซื้อ' : it.make === 'farm' ? 'รับซื้อ' : 'รับเข้า', source_ref: po || sup.supplier_id }],
-    moves: [newMove({ item_code: code, lot_no: lotNo, type: 'รับ', qty: q, party: sup.name, doc_no: po ? `FM-01 ${po}` : it.make === 'farm' ? 'FM-23 ใบรับซื้อวัตถุดิบสมุนไพร' : 'FM-01' })],
-  };
-  if (po) fx.po = [{ po_no: po, received_date: S.today, lot_no: lotNo }];
-  const summary = `รับเข้า ${it.name} ${qty(code, q)} จาก ${sup.name} ออกเลข ${lotNo} ติดป้ายรอปล่อยผ่าน`;
-  commit({ type: 'receive', summary, effects: fx });
-  toast(summary);
-  location.hash = '#/qc';
-}
-
-function submitIssue(form) {
-  if (!CAN.issue.includes(currentUser().role)) return toast('เบิกออกได้เฉพาะเจ้าหน้าที่ฝ่ายจัดซื้อและคลัง เปลี่ยนผู้ใช้ที่มุมขวาบน', 'warn');
-  const f = new FormData(form);
-  const code = f.get('item'), q = round(code, Number(f.get('qty'))), to = String(f.get('to') || '').trim();
-  if (!(q > 0) || !to) return toast('ใส่จำนวนและผู้รับก่อน', 'warn');
-  const it = S.items.get(code);
-  const { picks, short } = fefoPick((S.lotsByItem.get(code) || []).filter(usable), q);
-  if (short > 1e-9) return toast(`ของที่ตรวจสอบแล้วไม่พอ ขาด ${qty(code, short)}`, 'crit');
-  const fx = { moves: picks.map((p) => newMove({ item_code: code, lot_no: p.lot_no, type: 'จ่าย', qty: round(code, p.qty), party: to, doc_no: REQ_FORM[it.kind] })) };
-  const summary = `เบิก ${it.name} ${qty(code, q)} ให้ ${to} จาก ${picks.length} ล็อต (${picks.map((p) => p.lot_no).join(', ')})`;
-  commit({ type: 'issue', summary, effects: fx });
-  toast(summary);
-  route();
-}
-
-// ---------- 04 จัดซื้อ ----------
-function viewPurchase() {
-  const open = [...D.itemStats.values()].flatMap((s) => s.poViews.map((v) => ({ s, v }))).sort((a, b) => a.v.prob - b.v.prob);
-  const toOrder = [...D.itemStats.values()].filter((s) => s.it.make === 'buy' && s.suggestQty > 0 && !s.openPOs.length);
-  const sups = S.base.suppliers.filter((s) => s.type !== 'เกษตรกร').map((s) => {
-    const xs = S.pos.filter((p) => p.supplier_id === s.supplier_id && p.received_date);
-    const lts = xs.map((p) => daysBetween(p.order_date, p.received_date));
-    const n = lts.length, mean = n ? lts.reduce((a, b) => a + b, 0) / n : 0;
-    const sd = n > 1 ? Math.sqrt(lts.reduce((a, x) => a + (x - mean) ** 2, 0) / (n - 1)) : 0;
-    const onTime = n ? xs.filter((p) => p.received_date <= p.quoted_date).length / n : 0;
-    return { s, n, mean, sd, onTime };
-  });
-  return `<div class="lead"><h1>จัดซื้อ</h1><p class="muted">ฝ่ายจัดซื้อและคลัง ใบสั่งซื้อที่ค้างรับทุกใบมีโอกาสมาทันคำนวณจากประวัติส่งของจริงของผู้ขายรายนั้น</p></div>
-  <section class="panel"><div class="panel-h"><h2>ใบสั่งซื้อค้างรับ จะมาทันไหม</h2><span class="small muted">${open.length} ใบ</span></div>
-  ${tableWrap(`<table><thead><tr><th>เลขที่</th><th>รายการ</th><th>ผู้ขาย</th><th class="r">จำนวน</th><th>วันที่สั่ง</th><th class="r">ส่งเฉลี่ย</th><th>คาดถึง</th><th>ของหมด</th><th class="r">โอกาสทัน</th><th>ผล</th></tr></thead><tbody>
-  ${open.map(({ s, v }) => `<tr><td class="mono">${v.po.po_no}</td><td>${esc(s.it.name)}</td><td>${esc(v.sl.supplier.name)}</td><td class="r">${qty(s.it.code, v.po.qty)}</td><td>${thaiDate(v.po.order_date)}</td>
-  <td class="r">${num(v.sl.L)} ±${num(v.sl.sL)} วัน <span class="small muted">(${v.sl.n} ครั้ง${v.sl.quoted ? ' ใช้ค่าที่แจ้ง' : ''})</span></td><td>${thaiDate(v.expected)}</td><td>${s.stockoutDate ? thaiDate(s.stockoutDate) : '-'}</td><td class="r strong">${num(v.prob * 100)}%</td><td>${chip(v.verdict.level, v.verdict.text)}</td></tr>`).join('')}
-  </tbody></table>`)}</section>
-  <section class="panel"><div class="panel-h"><h2>รายการที่ถึงจำนวนอย่างต่ำ ควรสั่งซื้อ</h2><span class="small muted">${toOrder.length} รายการ</span></div>
-  ${toOrder.length ? tableWrap(`<table><thead><tr><th>รายการ</th><th class="r">ตรวจสอบแล้ว</th><th class="r">จำนวนอย่างต่ำ</th><th class="r">แนะนำสั่ง</th><th>ผู้ขาย</th><th class="r">ส่งเฉลี่ย</th></tr></thead><tbody>
-  ${toOrder.map((s) => `<tr><td>${esc(s.it.name)}</td><td class="r">${qty(s.it.code, s.released)}</td><td class="r">${num(s.pol.rop)}</td><td class="r strong">${qty(s.it.code, s.suggestQty)}</td><td>${esc(s.lt.supplier?.name || '')}</td><td class="r">${num(s.lt.L)} วัน</td></tr>`).join('')}</tbody></table>`) : '<p class="muted">ยังไม่มีรายการที่ถึงจุดสั่งซื้อโดยไม่มีใบสั่งซื้อค้าง</p>'}</section>
-  <section class="panel"><div class="panel-h"><h2>ทะเบียนผู้ขายที่ได้รับการคัดเลือก (FM-46) กับระยะส่งของจริง</h2></div>
-  ${tableWrap(`<table><thead><tr><th>ผู้ขาย</th><th class="r">ระยะส่งที่แจ้ง</th><th class="r">ระยะส่งจริง</th><th class="r">ส่งตามนัด</th><th>หมายเหตุ</th></tr></thead><tbody>
-  ${sups.map((x) => `<tr><td>${esc(x.s.name)}</td><td class="r">${x.s.quoted_lead_days} วัน</td><td class="r">${x.n ? `${num(x.mean)} ±${num(x.sd)} วัน (${x.n} ครั้ง)` : '-'}</td><td class="r">${x.n ? `${num(x.onTime * 100)}%` : '-'}</td><td class="small">${esc(x.s.note)}</td></tr>`).join('')}</tbody></table>`)}</section>
-  <section class="panel note"><h2>วิธีคิด</h2>
-  <ul class="small">
-    <li>สต็อกกันชน = Z × √(L̄·σd² + d̄²·σL²) เมื่อทั้งปริมาณใช้และระยะส่งของแกว่ง (Gallego, Columbia 2004 ข้อ 1.3.1 และ King, APICS magazine 2011)</li>
-    <li>จำนวนอย่างต่ำ (จุดสั่งซื้อ) = d̄ × L̄ + สต็อกกันชน และจำนวนอย่างสูง = d̄ × (R + L̄) + Z × σ(R+L) (MIT OCW ESD.260J 2006 บทที่ 11 และ 12)</li>
-    <li>โอกาสมาทัน = Φ((วันที่ของหมด − วันที่สั่ง − L̄) ÷ σL) หลักเดียวกับระดับบริการ = P[ปริมาณใช้ช่วงรอของ ≤ จุดสั่งซื้อ] (MIT บทที่ 11)</li>
-    <li>ระดับบริการเป้าหมาย ${num(CONFIG.cslKey * 100)}% สำหรับสินค้าหลักกับบรรจุภัณฑ์ของสินค้าหลัก และ ${num(CONFIG.cslOther * 100)}% สำหรับรายการอื่น ตัดสิน ทัน เมื่อถึงเป้า เสี่ยง เมื่อ 50% ขึ้นไป ไม่ทัน เมื่อต่ำกว่า 50% (เกณฑ์ตั้งเอง รอพี่เคาะ แก้ได้ที่ assets/config.js)</li>
-  </ul></section>`;
-}
-
-// ---------- 05 ควบคุมคุณภาพ ----------
-function viewQC() {
-  const user = currentUser();
-  const canRelease = CAN.release.includes(user.role);
-  const recent = S.releases.slice().sort((a, b) => b.date.localeCompare(a.date)).filter((r) => ['ยารับประทาน', 'ยาใช้ภายนอก'].includes(S.items.get(r.item_code).kind)).slice(0, 15);
-  return `<div class="lead"><h1>ควบคุมคุณภาพ</h1><p class="muted">ฝ่ายควบคุมคุณภาพ ป้ายแดง "รอปล่อยผ่าน" เปลี่ยนเป็นป้ายเขียว "ตรวจสอบแล้ว" หรือ "ไม่ผ่าน" ได้โดยหัวหน้าฝ่ายควบคุมคุณภาพเท่านั้น (SOP-QC-06, SOP-QC-07, ระเบียบ V8.9 ข้อ 89 และ 92)</p>
-  ${canRelease ? '' : `<p class="small">${chip('warn', 'ผู้ใช้ตอนนี้ปล่อยผ่านไม่ได้')} เปลี่ยนผู้ใช้เป็น แพร หัวหน้าฝ่ายควบคุมคุณภาพ ที่มุมขวาบนเพื่อทดลอง</p>`}</div>
-  <section class="panel"><div class="panel-h"><h2>คิวรอปล่อยผ่าน</h2><span class="small muted">${D.qcQueue.length} ล็อต</span></div>
-  ${tableWrap(`<table><thead><tr><th>ป้าย</th><th>Lot No.</th><th>รายการ</th><th class="r">จำนวน</th><th>รับหรือผลิตเสร็จ</th><th class="r">รอมาแล้ว</th><th>ที่มา</th><th>เหตุผล (ถ้าไม่ผ่าน)</th><th>ตัดสิน</th></tr></thead><tbody>
-  ${D.qcQueue.map((q) => `<tr><td>${tag('รอปล่อยผ่าน')}</td><td class="mono">${esc(q.lot.lot_no)}</td><td>${esc(q.it.name)}</td><td class="r">${qty(q.it.code, q.lot.qty_left)}</td><td>${thaiDate(q.lot.date_in)}</td>
-  <td class="r ${q.waiting > CONFIG.qcWaitWarnDays ? 't-warn-dark strong' : ''}">${q.waiting} วัน</td><td class="small">${esc(q.lot.source)} ${esc(q.lot.source_ref)}</td>
-  <td><label class="sr" for="rs-${esc(q.lot.lot_no)}">เหตุผล ${esc(q.lot.lot_no)}</label><input id="rs-${esc(q.lot.lot_no)}" class="in-sm" placeholder="เช่น ความชื้นเกินเกณฑ์"></td>
-  <td class="nowrap"><button type="button" class="btn btn-solid btn-sm" data-act="release" data-lot="${esc(q.lot.lot_no)}" data-res="ผ่าน" ${canRelease ? '' : 'aria-disabled="true"'}>ปล่อยผ่าน</button> <button type="button" class="btn btn-line btn-sm" data-act="release" data-lot="${esc(q.lot.lot_no)}" data-res="ไม่ผ่าน" ${canRelease ? '' : 'aria-disabled="true"'}>ไม่ผ่าน</button></td></tr>`).join('') || '<tr><td colspan="9" class="muted">ไม่มีล็อตรอปล่อยผ่าน</td></tr>'}
-  </tbody></table>`)}</section>
-  <section class="panel"><div class="panel-h"><h2>บันทึกการปล่อยผ่านผลิตภัณฑ์สำเร็จรูป (FM-35)</h2><span class="small muted">15 รายการล่าสุด</span></div>
-  ${tableWrap(`<table><thead><tr><th>ว/ด/ป</th><th>ผลิตภัณฑ์สำเร็จรูป</th><th>Lot No.</th><th>ผลการตรวจ</th><th>ผู้ตรวจ/ผู้อนุมัติปล่อยผ่าน</th><th>หมายเหตุ</th></tr></thead><tbody>
-  ${recent.map((r) => `<tr><td>${thaiDate(r.date)}</td><td>${esc(S.items.get(r.item_code).name)}</td><td class="mono">${esc(r.lot_no)}</td><td>${r.result === 'ผ่าน' ? tag('ตรวจสอบแล้ว') : tag('ไม่ผ่าน')}</td><td>${esc(staff(r.checker_id).name.replace(' (สมมุติ)', ''))} / ${esc(staff(r.approver_id).name.replace(' (สมมุติ)', ''))}</td><td class="small">${esc(r.note)}</td></tr>`).join('')}
-  </tbody></table>`)}</section>`;
-}
-
-// ---------- 06 ขาย ลูกหนี้ ----------
-function viewSales() {
+// ================= ขาย ลูกหนี้ =================
+function viewSales(p) {
+  const alerts = roomAlerts('sales');
+  const tab = p.get('tab') || 'ar';
   const ms = monthSales();
   const ar = arAging();
+  const tabs = [['ar', 'ลูกหนี้'], ['sales', 'ยอดขาย'], ['stock', 'ยาพร้อมขาย']];
+  const body = tab === 'sales' ? salesTab(ms, p) : tab === 'stock' ? fgStock(p) : arTab(p, ar);
+  return head('ห้องทำงานขาย ลูกหนี้', alerts) + slipBlock('sales') + stripCells([
+    { k: 'ยอดขาย 12 เดือน', n: mill(ms.reduce((s, x) => s + x.total, 0)), u: 'ล้านบาท', d: `เดือนนี้ถึงวันนี้ ${mill(ms[ms.length - 1].total)} ล้าน` },
+    { k: 'ลูกหนี้ค้างชำระ', n: mill(ar.total), u: 'ล้านบาท', d: `${S.invoices.filter((v) => !v.paid_date && v.date <= S.today).length} ใบ` },
+    { k: 'เกินกำหนดชำระ', n: mill(ar.overdue), u: 'ล้านบาท', lv: ar.overdue ? 'crit' : '', d: `${D.overdue.length} ราย` },
+  ]) + alertsBlock(alerts) + seg('sales', tabs, tab) + body;
+}
+function arTab(p, ar) {
+  const cust = p.get('cust') || '';
   const from = addDays(S.today, -365);
   const rows = S.base.customers.map((c) => {
-    const inv = S.base.invoices.filter((v) => v.customer_id === c.customer_id);
-    const sales = inv.filter((v) => v.date > from && v.date <= S.today).reduce((s, v) => s + v.total, 0);
-    const out = inv.filter((v) => !v.paid_date).reduce((s, v) => s + v.total, 0);
-    const over = inv.filter((v) => !v.paid_date && v.due_date < S.today).reduce((s, v) => s + v.total, 0);
-    const oldest = inv.filter((v) => !v.paid_date).reduce((m, v) => Math.max(m, daysBetween(v.date, S.today)), 0);
-    return { c, sales, out, over, oldest };
-  }).sort((a, b) => b.out - a.out);
-  const overdue = S.base.invoices.filter((v) => !v.paid_date && v.due_date < S.today).sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 12);
-  const cname = (id) => S.base.customers.find((c) => c.customer_id === id)?.name || id;
-  return `<div class="lead"><h1>ขาย ลูกหนี้</h1><p class="muted">ยอดขายมาจากใบเบิกยาสำเร็จรูป (FM-19) ที่จ่ายจริงในคลัง ข้อมูลลูกค้าเป็นของสมมุติ</p></div>
-  <section class="tiles"><div class="tile"><div class="tile-h"><span>ยอดขาย 12 เดือน</span></div><div class="tile-n"><span class="mono">${mill(ms.reduce((s, x) => s + x.total, 0))}</span><span>ล้านบาท</span></div></div>
-  <div class="tile"><div class="tile-h"><span>ลูกหนี้ค้างชำระ</span></div><div class="tile-n"><span class="mono">${mill(ar.total)}</span><span>ล้านบาท</span></div></div>
-  <div class="tile ${ar.overdue ? 'tile-warn' : ''}"><div class="tile-h"><span>เกินกำหนดชำระ</span></div><div class="tile-n"><span class="mono">${mill(ar.overdue)}</span><span>ล้านบาท</span></div></div></section>
-  <div class="cols"><section class="panel panel-2"><div class="panel-h"><h2>ยอดขายรายเดือน</h2></div>${salesBars(ms)}</section>
-  <section class="panel panel-1"><div class="panel-h"><h2>ลูกหนี้ตามอายุหนี้</h2></div>${agingBar(ar)}</section></div>
-  <section class="panel"><div class="panel-h"><h2>ขายให้ใคร ค้างเท่าไร</h2></div>
-  ${tableWrap(`<table><thead><tr><th>ลูกค้า</th><th>ประเภท</th><th class="r">เครดิต</th><th class="r">ยอดขาย 12 เดือน</th><th class="r">ค้างชำระ</th><th class="r">เกินกำหนด</th><th class="r">ใบเก่าสุด</th></tr></thead><tbody>
-  ${rows.map((x) => `<tr><td>${esc(x.c.name)}</td><td>${esc(x.c.type)}</td><td class="r">${x.c.credit_days} วัน</td><td class="r">${money(x.sales)}</td><td class="r strong">${money(x.out)}</td><td class="r ${x.over ? 't-crit-text' : ''}">${x.over ? money(x.over) : '-'}</td><td class="r">${x.oldest ? `${x.oldest} วัน` : '-'}</td></tr>`).join('')}</tbody></table>`)}</section>
-  <section class="panel"><div class="panel-h"><h2>ใบส่งของเกินกำหนดชำระ</h2><span class="small muted">12 ใบที่ค้างนานสุด</span></div>
-  ${tableWrap(`<table><thead><tr><th>เลขที่</th><th>ลูกค้า</th><th>วันที่</th><th>ครบกำหนด</th><th class="r">เกินมา</th><th class="r">ยอด</th></tr></thead><tbody>
-  ${overdue.map((v) => `<tr><td class="mono">${v.inv_no}</td><td>${esc(cname(v.customer_id))}</td><td>${thaiDate(v.date)}</td><td>${thaiDate(v.due_date)}</td><td class="r t-crit-text">${daysBetween(v.due_date, S.today)} วัน</td><td class="r">${money(v.total)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">ไม่มี</td></tr>'}</tbody></table>`)}</section>`;
+    const inv = S.invoices.filter((v) => v.customer_id === c.customer_id && v.date <= S.today);
+    return { c, sales: inv.filter((v) => v.date > from).reduce((s, v) => s + v.total, 0), out: inv.filter((v) => !v.paid_date).reduce((s, v) => s + v.total, 0), over: inv.filter((v) => !v.paid_date && v.due_date < S.today).reduce((s, v) => s + v.total, 0), oldest: inv.filter((v) => !v.paid_date).reduce((m, v) => Math.max(m, daysBetween(v.date, S.today)), 0) };
+  }).sort((a, b) => b.over - a.over || b.out - a.out);
+  const unpaid = S.invoices.filter((v) => !v.paid_date && v.date <= S.today && (cust ? v.customer_id === cust : v.due_date < S.today)).sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 25);
+  const canPay = can('payment');
+  return `<div class="work"><section class="panel" aria-labelledby="cu-h"><div class="panel-h"><h2 id="cu-h">ขายให้ใคร ค้างเท่าไร</h2><span class="meta">กดชื่อลูกค้าเพื่อดูใบค้าง</span></div>
+    ${tableWrap(`<table><thead><tr><th>ลูกค้า</th><th class="r">เครดิต</th><th class="r">ยอดขาย 12 เดือน</th><th class="r">ค้างชำระ</th><th class="r">เกินกำหนด</th><th class="r">ใบเก่าสุด</th></tr></thead><tbody>
+    ${rows.map((x) => `<tr${cust === x.c.customer_id ? ' class="is-target" data-target' : ''}><td><a href="#/sales?tab=ar&cust=${x.c.customer_id}">${esc(x.c.name)}</a><span class="sub-l">${esc(x.c.type)}${active(x.c) ? '' : ' เลิกใช้'}</span></td><td class="r"><span class="num">${x.c.credit_days}</span><span class="u">วัน</span></td><td class="r"><span class="num">${num(x.sales)}</span></td><td class="r"><span class="num"><b>${num(x.out)}</b></span></td><td class="r">${x.over ? `<span class="num" style="color:var(--crit)">${num(x.over)}</span>` : '<span class="muted">-</span>'}</td><td class="r">${x.oldest ? `<span class="num">${x.oldest}</span><span class="u">วัน</span>` : '-'}</td></tr>`).join('')}</tbody></table>`, 'ลูกหนี้รายลูกค้า')}
+    <p class="note">หน่วยเป็นบาท ยอดขายมาจากใบส่งของที่ออกพร้อมใบเบิกยาสำเร็จรูป FM-19</p></section>
+    <section class="panel" aria-labelledby="iv-h"><div class="panel-h"><h2 id="iv-h">${cust ? `ใบค้างชำระของ ${esc(custName(cust))}` : 'ใบส่งของเกินกำหนดชำระ'}</h2>${cust ? '<a href="#/sales?tab=ar">ดูทุกรายที่เกินกำหนด</a>' : ''}</div>
+    ${roleNote('payment', 'บันทึกรับชำระ')}
+    ${unpaid.length ? `<ul class="mini">${unpaid.map((v) => { const late = daysBetween(v.due_date, S.today); return `<li><span class="t"><a class="mono" href="#/doc?type=fm19&inv=${encodeURIComponent(v.inv_no)}">${esc(v.inv_no)}</a> ${cust ? '' : esc(short(custName(v.customer_id)))}<span class="d">ครบกำหนด ${esc(thaiDate(v.due_date))}${late > 0 ? ` เกินมา ${late} วัน` : ''} ยอด ${esc(money(v.total))}</span></span><button type="button" class="btn btn-sm" data-act="pay" data-inv="${esc(v.inv_no)}" ${canPay ? '' : 'disabled'}>รับชำระ</button></li>`; }).join('')}</ul>` : '<p class="empty">ไม่มีใบค้างชำระ</p>'}
+    <div style="margin-top:16px">${agingBar(ar)}</div></section></div>`;
+}
+function salesTab(ms, p) {
+  const q = (p.get('q') || '').trim().toLowerCase();
+  const from = addDays(S.today, -365);
+  const inv = new Map(S.invoices.filter((v) => v.date > from && v.date <= S.today).map((v) => [v.inv_no, v]));
+  const by = new Map();
+  for (const l of S.invoiceLines) { if (!inv.has(l.inv_no)) continue; const x = by.get(l.item_code) || { q: 0, amt: 0 }; x.q += l.qty; x.amt += l.amount; by.set(l.item_code, x); }
+  const rows = [...by].filter(([code]) => !q || S.items.get(code).name.toLowerCase().includes(q) || code.includes(q)).sort((a, b) => b[1].amt - a[1].amt);
+  const total = [...by.values()].reduce((t, x) => t + x.amt, 0);
+  return `<div class="work"><section class="panel" aria-labelledby="ms-h"><div class="panel-h"><h2 id="ms-h">ยอดขายรายเดือน</h2><span class="meta">12 เดือนล่าสุด</span></div>${salesBars(ms)}</section>
+  <section class="panel" aria-labelledby="bp-h"><div class="panel-h"><h2 id="bp-h">ขายอะไร 12 เดือน</h2><span class="meta">${by.size} ผลิตภัณฑ์ รวม ${mill(total)} ล้านบาท</span></div>
+  <form class="search" data-form="salesSearch" role="search" style="margin:0 0 10px"><label class="sr" for="sq">ค้นผลิตภัณฑ์</label><input class="in" id="sq" name="q" value="${esc(p.get('q') || '')}" placeholder="ค้นชื่อหรือรหัส"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form>
+  ${tableWrap(`<table><thead><tr><th>ผลิตภัณฑ์</th><th class="r">จำนวน</th><th class="r">ยอดขาย (บาท)</th><th class="r">สัดส่วน</th></tr></thead><tbody>${rows.slice(0, 40).map(([code, x]) => `<tr><td><a href="#/product?code=${code}">${esc(S.items.get(code).name)}</a></td><td class="r">${qh(code, x.q)}</td><td class="r"><span class="num">${num(x.amt)}</span></td><td class="r"><span class="num">${num((x.amt / Math.max(1, total)) * 100, 1)}%</span></td></tr>`).join('')}</tbody></table>`, 'ยอดขายรายผลิตภัณฑ์')}
+  ${rows.length > 40 ? `<p class="note">แสดง 40 อันดับแรกจาก ${rows.length} ใช้ช่องค้นเพื่อหารายการอื่น</p>` : ''}</section></div>`;
+}
+function fgStock(p) {
+  const q = (p.get('q') || '').trim().toLowerCase();
+  const lots = S.lots.filter((l) => usable(l) && isFG(S.items.get(l.item_code)) && (!q || S.items.get(l.item_code).name.toLowerCase().includes(q) || l.lot_no.includes(q))).sort((a, b) => a.item_code.localeCompare(b.item_code) || (a.exp_date || '').localeCompare(b.exp_date || ''));
+  return `<section class="panel" aria-labelledby="fg-h"><div class="panel-h"><h2 id="fg-h">ยาสำเร็จรูปพร้อมขาย</h2><span class="meta">${lots.length} ล็อตที่ตรวจสอบแล้ว เรียงหมดอายุก่อนในแต่ละรายการ</span></div>
+  <form class="search" data-form="fgSearch" role="search" style="margin:0 0 10px"><label class="sr" for="fq">ค้นยาพร้อมขาย</label><input class="in" id="fq" name="q" value="${esc(p.get('q') || '')}" placeholder="ค้นชื่อยาหรือเลขที่ผลิต"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form>
+  ${tableWrap(`<table><thead><tr><th>ผลิตภัณฑ์</th><th>Lot No.</th><th class="r">คงเหลือ</th><th>หมดอายุ</th><th>ขายก่อน</th></tr></thead><tbody>${lots.slice(0, 80).map((l) => { const d = daysBetween(S.today, l.exp_date); return `<tr><td>${esc(S.items.get(l.item_code).name)}</td><td class="code">${esc(l.lot_no)}</td><td class="r">${qh(l.item_code, l.qty_left)}</td><td class="nowrap">${esc(thaiDate(l.exp_date))}</td><td>${d <= CONFIG.expiryWarnDays ? chip(`เหลือ ${d} วัน`, d <= CONFIG.expiryCritDays ? 'crit' : 'warn') : '<span class="muted">-</span>'}</td></tr>`; }).join('')}</tbody></table>`, 'ยาสำเร็จรูปพร้อมขาย')}
+  ${lots.length > 80 ? '<p class="note">แสดง 80 ล็อตแรก ใช้ช่องค้นเพื่อหารายการอื่น</p>' : ''}</section>`;
 }
 
-// ---------- 07 ไล่ย้อนล็อต ----------
+// ================= ไล่ย้อนล็อต =================
 function traceTree(lotNo, depth = 0) {
   const lot = S.lotMap.get(lotNo);
   if (!lot) return '';
   const it = S.items.get(lot.item_code);
   const job = S.jobs.find((j) => j.out_lot === lotNo);
-  const src = lot.source === 'ใบสั่งซื้อ' ? `ซื้อตาม ${lot.source_ref}` : lot.source === 'รับซื้อ' ? `รับซื้อจาก ${S.base.suppliers.find((s) => s.supplier_id === lot.source_ref)?.name || lot.source_ref}` : lot.source === 'ผลิต' ? `ผลิตตามงาน ${lot.source_ref}` : lot.source;
+  const src = lot.source === 'ใบสั่งซื้อ' ? `ซื้อตาม ${lot.source_ref}` : lot.source === 'รับซื้อ' ? `รับซื้อจาก ${supName(lot.source_ref)}` : lot.source === 'ผลิต' ? `ผลิตตามงาน ${lot.source_ref}` : lot.source;
   const kids = job && depth < 3 ? S.jobInputs.filter((x) => x.job_id === job.job_id) : [];
-  return `<li><span class="mono strong">${esc(lotNo)}</span> ${esc(it.name)} ${tag(lot.status)} <span class="small muted">${esc(src)} รับหรือผลิต ${thaiDate(lot.date_in)}</span>${kids.length ? `<ul>${kids.map((k) => `<li class="small">ใช้ ${qty(k.item_code, k.qty)}<ul>${traceTree(k.lot_no, depth + 1)}</ul></li>`).join('')}</ul>` : ''}</li>`;
+  return `<li><span class="mono">${esc(lotNo)}</span> ${esc(it.name)} ${lotChip(lot.status)} <span class="muted">${esc(src)} ${esc(thaiDate(lot.date_in))}</span>${kids.length ? `<ul>${kids.map((k) => `<li>ใช้ ${esc(qty(k.item_code, k.qty))}<ul>${traceTree(k.lot_no, depth + 1)}</ul></li>`).join('')}</ul>` : ''}</li>`;
 }
 function forward(lotNo, depth = 0, acc = new Map()) {
-  for (const l of S.base.invoice_lines.filter((x) => x.lot_no === lotNo)) {
-    const inv = S.base.invoices.find((v) => v.inv_no === l.inv_no);
-    const k = inv.customer_id;
-    acc.set(k, (acc.get(k) || 0) + l.qty);
+  for (const l of S.invoiceLines.filter((x) => x.lot_no === lotNo)) {
+    const inv = S.invoices.find((v) => v.inv_no === l.inv_no);
+    if (inv) acc.set(inv.customer_id, (acc.get(inv.customer_id) || 0) + l.qty);
   }
   if (depth < 3) for (const x of S.jobInputs.filter((y) => y.lot_no === lotNo)) { const j = S.jobs.find((jj) => jj.job_id === x.job_id); if (j && j.out_lot) forward(j.out_lot, depth + 1, acc); }
   return acc;
@@ -553,75 +579,416 @@ function usedIn(lotNo, depth = 0) {
   return out;
 }
 function viewTrace(params) {
-  const lotNo = params.get('lot') || '';
+  const lotNo = (params.get('lot') || '').trim();
   const lot = S.lotMap.get(lotNo);
-  const sample = S.lots.filter((l) => ['ยารับประทาน', 'ยาใช้ภายนอก'].includes(S.items.get(l.item_code).kind) && l.source === 'ผลิต').slice(-3).map((l) => l.lot_no).concat(S.lots.filter((l) => S.items.get(l.item_code).kind === 'สด').slice(-2).map((l) => l.lot_no));
+  const sample = S.lots.filter((l) => isFG(S.items.get(l.item_code)) && l.source === 'ผลิต').slice(-3).map((l) => l.lot_no).concat(S.lots.filter((l) => S.items.get(l.item_code).kind === 'สด').slice(-2).map((l) => l.lot_no));
   let body = '';
-  if (lotNo && !lot) body = `<p>${chip('warn', 'ไม่พบเลขนี้')} ลองเลขอื่น</p>`;
+  if (lotNo && !lot) body = `<p class="alerts-quiet">${chip('ไม่พบเลขนี้', 'warn')} ลองเลขอื่น หรือกดเลขตัวอย่าง</p>`;
   if (lot) {
     const fw = forward(lotNo);
-    const downstream = usedIn(lotNo);
-    const cname = (id) => S.base.customers.find((c) => c.customer_id === id)?.name || id;
-    body = `<div class="cols"><section class="panel panel-1"><div class="panel-h"><h2>ไล่ย้อนต้นทาง</h2></div><ul class="tree">${traceTree(lotNo)}</ul></section>
-    <section class="panel panel-1"><div class="panel-h"><h2>ไล่ไปปลายทาง จำลองเรียกคืน</h2></div>
-    ${downstream.length ? `<p class="small">ล็อตนี้ถูกใช้ผลิตต่อเป็น ${downstream.map((x) => `<a class="mono" href="#/trace?lot=${x}">${x}</a>`).join(', ')}</p>` : ''}
-    ${fw.size ? `<p class="small strong">ถ้าต้องเรียกคืน ต้องแจ้ง ${fw.size} ราย (แบบฟอร์ม FM-07 บันทึกการเรียกคืน และ FM-10 ใบเรียกคืนผลิตภัณฑ์สำเร็จรูป)</p>${tableWrap(`<table><thead><tr><th>ลูกค้า</th><th class="r">จำนวนที่ได้รับ</th></tr></thead><tbody>${[...fw].map(([k, v]) => `<tr><td>${esc(cname(k))}</td><td class="r">${num(v)}</td></tr>`).join('')}</tbody></table>`)}` : '<p class="muted small">ยังไม่มีการจ่ายออกให้ลูกค้า</p>'}</section></div>`;
+    const down = usedIn(lotNo);
+    body = `<div class="work"><section class="panel" aria-labelledby="tb-h"><div class="panel-h"><h2 id="tb-h">ไล่ย้อนต้นทาง</h2></div><ul class="tree">${traceTree(lotNo)}</ul></section>
+    <section class="panel" aria-labelledby="tf-h"><div class="panel-h"><h2 id="tf-h">ไล่ไปปลายทาง จำลองเรียกคืน</h2></div>
+    ${down.length ? `<p>ล็อตนี้ถูกใช้ผลิตต่อเป็น ${down.map((x) => `<a class="mono" href="#/trace?lot=${x}">${x}</a>`).join(', ')}</p>` : ''}
+    ${fw.size ? `<p style="margin:6px 0 10px"><strong>ถ้าต้องเรียกคืน ต้องแจ้ง ${fw.size} ราย</strong> (FM-07 บันทึกการเรียกคืน และ FM-10 ใบเรียกคืนผลิตภัณฑ์สำเร็จรูป)</p>${tableWrap(`<table><thead><tr><th>ลูกค้า</th><th class="r">จำนวนที่ได้รับ</th></tr></thead><tbody>${[...fw].map(([k, v]) => `<tr><td>${esc(custName(k))}</td><td class="r"><span class="num">${num(v)}</span></td></tr>`).join('')}</tbody></table>`, 'ลูกค้าที่ต้องแจ้งเรียกคืน')}` : '<p class="empty">ยังไม่มีการจ่ายออกให้ลูกค้า</p>'}</section></div>`;
   }
-  return `<div class="lead"><h1>ไล่ย้อนล็อต</h1><p class="muted">ใส่เลขที่ผลิต 8 หลัก (SOP-PD-07) หรือเลขรับ เพื่อดูว่ามาจากวัตถุดิบล็อตไหน ใครส่งมา และถ้ามีปัญหาต้องเรียกคืนจากใคร</p></div>
-  <form data-form="trace" class="row-wrap trace-form"><label class="sr" for="lotq">เลขที่ผลิต</label><input id="lotq" name="lot" class="mono" value="${esc(lotNo)}" placeholder="เช่น ${esc(sample[0] || '')}" list="lotList"><datalist id="lotList">${S.lots.slice(-200).map((l) => `<option value="${l.lot_no}">`).join('')}</datalist><button class="btn btn-solid" type="submit">ไล่ย้อน</button>
-  <span class="small muted">ลองเลข: ${sample.map((x) => `<a class="mono" href="#/trace?lot=${x}">${x}</a>`).join(' ')}</span></form>${body}`;
+  return `<header class="room-head"><div><h1>ไล่ย้อนล็อต</h1><p class="sub">ใส่เลขที่ผลิต 8 หลัก (SOP-PD-07) หรือเลขรับ ดูว่ามาจากวัตถุดิบล็อตไหน ใครส่งมา และถ้ามีปัญหาต้องเรียกคืนจากใคร</p></div></header>
+  <form data-form="trace" class="trace-form" role="search"><label class="sr" for="lotq">เลขที่ผลิตหรือเลขรับ</label><input class="in" id="lotq" name="lot" value="${esc(lotNo)}" placeholder="เช่น ${esc(sample[0] || '')}" list="lotList"><datalist id="lotList">${S.lots.slice(-200).map((l) => `<option value="${l.lot_no}">`).join('')}</datalist><button class="btn btn-solid" type="submit">${I.trace}ไล่ย้อน</button>
+  <span class="samples">ลองเลข${sample.map((x) => `<a href="#/trace?lot=${x}">${x}</a>`).join('')}</span></form>${body}`;
 }
 
-// ---------- 08 ประวัติการแก้ไข ----------
-function viewLog() {
-  const evs = S.events.slice().reverse();
-  return `<div class="lead"><h1>ประวัติการแก้ไข</h1><p class="muted">ทุกการรับเข้า เบิก ย้ายงาน และปล่อยผ่าน ที่ทดลองกรอก บันทึกต่อท้ายอย่างเดียว ไม่แก้ทับ บอกได้ว่าใคร ทำอะไร เมื่อไร และเหตุผล ข้อมูลส่วนนี้เก็บในเบราว์เซอร์เครื่องนี้เท่านั้น</p></div>
-  <section class="panel"><div class="panel-h"><h2>เหตุการณ์ที่ทดลองกรอก</h2><div class="row-wrap"><button type="button" class="btn btn-line" data-act="exportLog" ${evs.length ? '' : 'disabled'}>ส่งออก CSV</button><button type="button" class="btn btn-line" data-act="reset" ${evs.length ? '' : 'disabled'}>ล้างที่ทดลองกรอก</button></div></div>
-  ${evs.length ? tableWrap(`<table><thead><tr><th>เวลา</th><th>ผู้ใช้</th><th>บทบาท</th><th>ทำอะไร</th><th>เหตุผล</th></tr></thead><tbody>${evs.map((e) => `<tr><td class="nowrap">${new Date(e.at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}</td><td>${esc(staff(e.user).name.replace(' (สมมุติ)', ''))}</td><td>${esc(staff(e.user).role)}</td><td>${esc(e.summary)}</td><td>${esc(e.reason || '')}</td></tr>`).join('')}</tbody></table>`) : '<p class="muted">ยังไม่มี ลองรับของ เบิกของ ย้ายการ์ด หรือปล่อยผ่าน แล้วกลับมาดูหน้านี้</p>'}</section>`;
+// ================= ตัวสร้างรายการ (ใช้ทั้งตอนบันทึกใหม่และตอนแก้ไข) =================
+function buildReceive(inp, keep = {}) {
+  const it = S.items.get(inp.item);
+  if (!it) return { error: 'ไม่พบรายการ เลือกจากรายการที่ขึ้นให้เลือก' };
+  const q = round(inp.item, Number(inp.qty));
+  if (!(q > 0)) return { error: 'ใส่จำนวนก่อน' };
+  const sup = S.base.suppliers.find((s) => s.supplier_id === inp.supplier);
+  if (!sup) return { error: 'เลือกผู้ขาย' };
+  const date = keep.date || S.today;
+  const lotNo = keep.lot || nextLotNo(inp.item, date);
+  const exp = inp.exp || (it.shelf_days ? addDays(date, it.shelf_days) : '');
+  const fx = {
+    lots: [{ lot_no: lotNo, item_code: inp.item, qty_in: q, date_in: date, exp_date: exp, status: 'รอปล่อยผ่าน', release_date: '', source: inp.po ? 'ใบสั่งซื้อ' : it.make === 'farm' ? 'รับซื้อ' : 'รับเข้า', source_ref: inp.po || sup.supplier_id }],
+    moves: [newMove({ item_code: inp.item, lot_no: lotNo, type: 'รับ', qty: q, party: sup.name, doc_no: inp.po ? `FM-01 ${inp.po}` : it.make === 'farm' ? 'FM-23 ใบรับซื้อวัตถุดิบสมุนไพร' : 'FM-01', date, user_id: keep.user || S.user })],
+  };
+  if (inp.po) {
+    fx.po = [{ po_no: inp.po, received_date: date, lot_no: lotNo }];
+    const pr = S.prs.find((r) => r.po_no === inp.po && !r.received);
+    if (pr) fx.prStep = [{ pr_no: pr.pr_no, patch: { received: date, received_by: keep.user || S.user } }];
+  }
+  return {
+    summary: `รับเข้า ${it.name} ${qty(inp.item, q)} จาก ${sup.name} ออกเลข ${lotNo} ติดป้ายรอปล่อยผ่าน`, effects: fx, room: 'store',
+    slip: { k: 'สำเนาบันทึกการตรวจรับ FM-01', no: lotNo, title: `${it.name} ${qty(inp.item, q)}`, lines: [`รับจาก ${sup.name}${inp.po ? ` ตาม ${inp.po}` : ''} ${thaiDate(date)}`, 'ติดป้ายรอปล่อยผ่านแล้ว ส่งเข้าคิวฝ่ายควบคุมคุณภาพ'], stamp: ['รอปล่อยผ่าน', 'crit'], links: [['พิมพ์ FM-01', `#/doc?type=fm01&from=${date}&to=${date}`]].concat(it.make === 'farm' ? [['พิมพ์ FM-23', `#/doc?type=fm23&lot=${lotNo}`]] : []) },
+  };
+}
+function buildIssue(inp, keep = {}) {
+  const it = S.items.get(inp.item);
+  if (!it) return { error: 'ไม่พบรายการ เลือกจากรายการที่ขึ้นให้เลือก' };
+  const q = round(inp.item, Number(inp.qty));
+  const to = String(inp.to || '').trim();
+  if (!(q > 0) || !to) return { error: 'ใส่จำนวนและผู้รับก่อน' };
+  const { picks, short: lack } = fefoPick((S.lotsByItem.get(inp.item) || []).filter(usable), q);
+  if (lack > 1e-9) return { error: `ของที่ตรวจสอบแล้วไม่พอ ขาด ${qty(inp.item, lack)}` };
+  const date = keep.date || S.today;
+  const fx = { moves: picks.map((pk) => newMove({ item_code: inp.item, lot_no: pk.lot_no, type: 'จ่าย', qty: round(inp.item, pk.qty), party: to, doc_no: REQ_FORM[it.kind], date, user_id: keep.user || S.user })) };
+  const lines = [`จาก ${picks.length} ล็อต ${picks.map((pk) => `${pk.lot_no} ${qn(inp.item, pk.qty)}`).join(' ')}`];
+  const cust = S.base.customers.find((c) => c.name === to);
+  let invNo = '';
+  if (cust && isFG(it)) {
+    invNo = keep.inv || nextInvNo();
+    const price = it.price || 0;
+    fx.invoiceLines = picks.map((pk) => ({ inv_no: invNo, item_code: inp.item, lot_no: pk.lot_no, qty: round(inp.item, pk.qty), price, amount: Math.round(round(inp.item, pk.qty) * price) }));
+    const total = fx.invoiceLines.reduce((s, l) => s + l.amount, 0);
+    fx.invoices = [{ inv_no: invNo, date, customer_id: cust.customer_id, total, due_date: addDays(date, cust.credit_days), paid_date: '' }];
+    lines.push(`ออกใบส่งของ ${invNo} ยอด ${money(total)} ครบกำหนด ${thaiDate(addDays(date, cust.credit_days))} ขึ้นในห้องขาย ลูกหนี้แล้ว`);
+  }
+  return {
+    summary: `เบิก ${it.name} ${qty(inp.item, q)} ให้ ${to} จาก ${picks.length} ล็อต (${picks.map((pk) => pk.lot_no).join(', ')})${invNo ? ` ออกใบส่งของ ${invNo}` : ''}`, effects: fx, room: 'store',
+    slip: { k: `สำเนาใบเบิก ${REQ_FORM[it.kind]}`, no: invNo || picks[0].lot_no, title: `${it.name} ${qty(inp.item, q)} ให้ ${to}`, lines, stamp: ['จ่ายแล้ว', 'ink'], links: invNo ? [['พิมพ์ FM-19 ใบเบิกยาสำเร็จรูป', `#/doc?type=fm19&inv=${encodeURIComponent(invNo)}`]] : [] },
+  };
+}
+function buildJob(inp, keep = {}) {
+  const room = ROOMS.find((r) => r.id === inp.room);
+  const it = S.items.get(inp.item);
+  if (!room || !it || it.lane !== room.lane) return { error: 'ไม่พบรายการ เลือกจากรายการที่ขึ้นให้เลือก' };
+  const q = round(inp.item, Number(inp.qty));
+  if (!(q > 0)) return { error: 'ใส่จำนวนก่อน' };
+  const lane = room.lane;
+  const jobId = keep.job || nextJobId();
+  const first = LANES[lane].stages[0];
+  const lack = bomNeeds(inp.item, q).find((n) => !n.ok);
+  return {
+    summary: `เปิดงาน${lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป'} ${jobId} ${it.name} ${qty(inp.item, q)}`, room: room.id,
+    effects: { newJobs: [{ job_id: jobId, lane, item_code: inp.item, qty: q, created_date: keep.date || S.today, start_date: '', end_date: '', release_date: '', out_lot: '', status: 'waiting', wait_reason: '' }], stage: [{ job_id: jobId, stage: first }] },
+    slip: { k: 'สำเนาใบเปิดงาน', no: jobId, title: `${it.name} ${qty(inp.item, q)}`, lines: [`เริ่มที่ขั้น "${first}" บนบอร์ด${LANES[lane].title}`, lack ? `ระวัง ${S.items.get(lack.code).name} ยังไม่พอตามสูตร` : 'วัตถุดิบตามสูตรพอ เบิกได้เมื่อย้ายไปขั้นถัดไป'], stamp: ['เปิดงานแล้ว', 'ink'] },
+    after: `#/${room.id}?tab=board&job=${encodeURIComponent(jobId)}`,
+  };
+}
+function buildQC(inp, keep = {}) {
+  const lot = S.lotMap.get(inp.lot);
+  if (!lot || lot.status !== 'รอปล่อยผ่าน') return { error: 'ล็อตนี้ไม่ได้อยู่ในคิวรอปล่อยผ่าน' };
+  const note = String(inp.note || '').trim();
+  if (inp.result === 'ไม่ผ่านเกณฑ์' && !note) return { error: 'ผลไม่ผ่านเกณฑ์ต้องใส่หมายเหตุว่าไม่ผ่านข้อใด' };
+  const it = S.items.get(lot.item_code);
+  const date = keep.date || S.today;
+  return {
+    summary: `บันทึกผลตรวจ ${inp.lot} ${it.name} ${inp.result}${note ? ` (${note})` : ''}`, room: 'qc',
+    effects: { qcResults: [{ date, lot_no: inp.lot, item_code: lot.item_code, result: inp.result, checker_id: S.user, note }] },
+    slip: { k: 'บันทึกผลตรวจ', no: inp.lot, title: `${it.name} ${qty(lot.item_code, lot.qty_left)}`, lines: [`ผู้ตรวจ ${short(currentUser().name)} ${thaiDate(date)}${note ? ` หมายเหตุ ${note}` : ''}`, 'รอหัวหน้าฝ่ายควบคุมคุณภาพอนุมัติ'], stamp: [inp.result, inp.result === 'ผ่านเกณฑ์' ? 'ok' : 'crit'] },
+  };
+}
+// ตัวสร้างของแต่ละประเภท + สิทธิ์ที่ต้องมีเพื่อบันทึก แก้ หรือลบ
+const BUILD = {
+  receive: { build: buildReceive, key: () => 'receive', what: 'รับเข้า' },
+  issue: { build: buildIssue, key: () => 'issue', what: 'เบิกออก' },
+  job: { build: buildJob, key: (inp) => `open${ROOMS.find((r) => r.id === inp.room)?.lane}`, what: 'เปิดงาน' },
+  qcResult: { build: buildQC, key: () => 'qcRecord', what: 'บันทึกผลตรวจ' },
+  pr: { build: buildPR, key: () => 'requested', what: 'เขียนใบขอซื้อ' },
+};
+const DEL_KEY = { payment: 'payment', maint: 'assetMaster', formula: 'formulaEdit' };
+export function submitNew(type, inp) {
+  const b = BUILD[type];
+  if (!can(b.key(inp))) return deny(b.key(inp), b.what);
+  const r = b.build(inp);
+  if (r.error) return toast(r.error, 'warn');
+  const ev = commit({ type, input: inp, summary: r.summary, effects: r.effects });
+  showSlip(r.room, { ...r.slip, links: [...(r.slip.links || []), ['แก้ไขหรือลบรายการนี้', `#/log?edit=${ev.id}`]] });
+  if (r.after) location.hash = r.after; else nav.route();
+}
+// เก็บเลขที่และวันที่เดิมไว้ เวลาแก้ไขจะได้เลขเดิม
+function keepOf(ev) {
+  const fx = ev.effects || {};
+  return {
+    lot: fx.lots?.[0]?.lot_no, inv: fx.invoices?.[0]?.inv_no, job: fx.newJobs?.[0]?.job_id, pr: fx.newPr?.[0]?.pr_no,
+    date: fx.lots?.[0]?.date_in || fx.moves?.[0]?.date || fx.newJobs?.[0]?.created_date || fx.qcResults?.[0]?.date || fx.newPr?.[0]?.requested || ev.at.slice(0, 10), user: ev.user,
+  };
 }
 
-// ---------- เหตุการณ์จากผู้ใช้ ----------
+// ================= ประวัติการแก้ไข: แก้ไขหรือลบได้ ต้องมีเหตุผล ฉบับเดิมยังอยู่ =================
+const KIND_TH = { receive: 'รับเข้า', issue: 'เบิกออก', job: 'เปิดงาน', qcResult: 'ผลตรวจ', release: 'ปล่อยผ่าน', stage: 'ย้ายงาน', payment: 'รับชำระ', pr: 'ใบขอซื้อ', prStep: 'ขั้นจัดซื้อ', master: 'ทะเบียน', formula: 'สูตร', maint: 'FM-08', note: 'บันทึกถึงฝ่าย', amend: 'แก้ไข', void: 'ลบ' };
+const sameKey = (e) => JSON.stringify(e.effects?.prStep?.[0]?.pr_no || e.effects?.formula?.[0]?.item || (e.effects?.master || []).map((m) => `${m.table}:${m.key}`));
+function editInfo(ev) {
+  const type = ev.type === 'amend' ? ev.of : ev.type;
+  const st = S.evState.get(ev.id)?.status;
+  if (ev.type === 'void' || st !== 'active') return { ok: false, why: '' };
+  if (type === 'release') return { ok: false, why: 'การอนุมัติปล่อยผ่านแก้หรือลบไม่ได้ ถ้าผิดให้ทำรายงานความเบี่ยงเบน FM-51' };
+  if (type === 'note') return { ok: false, why: 'เก็บเป็นหลักฐาน ลบหรือแก้ไม่ได้' };
+  if (type === 'stage') return { ok: false, why: 'ย้อนงานด้วยปุ่มลูกศรบนบอร์ด' };
+  if (['prStep', 'formula', 'master', 'maint'].includes(type)) {
+    const k = sameKey(ev);
+    const later = S.events.slice(S.events.indexOf(ev) + 1).find((f) => f.type !== 'void' && S.evState.get(f.id)?.status === 'active' && (f.type === ev.type || (type === 'prStep' && f.type === 'receive' && JSON.stringify(f.effects?.prStep?.[0]?.pr_no) === k)) && sameKey(f) === k);
+    if (later) return { ok: false, why: `มีรายการหลังจากนี้ (${later.summary}) ต้องลบรายการนั้นก่อน` };
+  }
+  const bl = blockers(ev.id);
+  if (bl.length) return { ok: false, why: `มีรายการหลังจากนี้อ้างถึง (${bl[0].summary}) ต้องลบรายการนั้นก่อน` };
+  return { ok: true, editable: !!BUILD[type] && !!ev.input };
+}
+function permKey(ev) {
+  const type = ev.type === 'amend' ? ev.of : ev.type;
+  if (BUILD[type]) return BUILD[type].key(ev.input || {});
+  if (type === 'prStep') return Object.keys(ev.effects?.prStep?.[0]?.patch || {}).find((k) => CAN[k]) || 'requested';
+  if (type === 'master') return { suppliers: 'supMaster', customers: 'custMaster', items: 'productMaster', assets: 'assetMaster' }[ev.effects?.master?.[0]?.table] || 'itemMaster';
+  return DEL_KEY[type] || 'itemMaster';
+}
+function editPanel(ev) {
+  const type = ev.type === 'amend' ? ev.of : ev.type;
+  const inp = ev.input || {};
+  let fields = '';
+  if (type === 'receive') {
+    const it = S.items.get(inp.item);
+    const sups = S.base.suppliers.filter((s) => (it.make === 'farm' ? s.type === 'เกษตรกร' : s.type !== 'เกษตรกร'));
+    fields = `<input type="hidden" name="item" value="${esc(inp.item)}"><input type="hidden" name="po" value="${esc(inp.po || '')}">
+      <label class="f">รายการ<input class="in" value="${esc(`${inp.item} ${it.name}`)}" disabled></label>
+      <label class="f">ผู้ขาย<select class="in" name="supplier">${sups.map((s) => `<option value="${s.supplier_id}" ${s.supplier_id === inp.supplier ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" step="any" min="0.01" required value="${esc(inp.qty)}"></label>
+      <label class="f">วันหมดอายุ<input class="in" name="exp" type="date" value="${esc(inp.exp || '')}"></label>`;
+  } else if (type === 'issue') {
+    const it = S.items.get(inp.item);
+    fields = `<input type="hidden" name="item" value="${esc(inp.item)}"><label class="f">รายการ<input class="in" value="${esc(`${inp.item} ${it.name}`)}" disabled></label>
+      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" step="any" min="0.01" required value="${esc(inp.qty)}"></label>
+      <label class="f wide">จ่ายให้<input class="in" name="to" required value="${esc(inp.to)}"></label>`;
+  } else if (type === 'job') {
+    const it = S.items.get(inp.item);
+    fields = `<input type="hidden" name="room" value="${esc(inp.room)}"><input type="hidden" name="item" value="${esc(inp.item)}"><label class="f">รายการ<input class="in" value="${esc(`${inp.item} ${it.name}`)}" disabled></label>
+      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" step="any" min="1" required value="${esc(inp.qty)}"></label>`;
+  } else if (type === 'qcResult') {
+    fields = `<input type="hidden" name="lot" value="${esc(inp.lot)}"><label class="f">ผลตรวจ<select class="in" name="result"><option ${inp.result === 'ผ่านเกณฑ์' ? 'selected' : ''}>ผ่านเกณฑ์</option><option ${inp.result === 'ไม่ผ่านเกณฑ์' ? 'selected' : ''}>ไม่ผ่านเกณฑ์</option></select></label>
+      <label class="f">หมายเหตุ<input class="in" name="note" value="${esc(inp.note || '')}"></label>`;
+  } else if (type === 'pr') {
+    const it = S.items.get(inp.item);
+    fields = `<input type="hidden" name="item" value="${esc(inp.item)}"><input type="hidden" name="supplier" value="${esc(inp.supplier)}"><label class="f">รายการ<input class="in" value="${esc(`${inp.item} ${it.name}`)}" disabled></label>
+      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" step="any" min="1" required value="${esc(inp.qty)}"></label>
+      <label class="f">ราคาต่อหน่วย (บาท)<input class="in" name="unit_cost" type="number" step="any" min="0" required value="${esc(inp.unit_cost)}"></label>
+      <label class="f wide">เหตุผลความจำเป็น<input class="in" name="purpose" value="${esc(inp.purpose || '')}"></label>`;
+  }
+  return `<section class="panel" aria-labelledby="ed-h"><div class="panel-h"><h2 id="ed-h">แก้ไขรายการ</h2><span class="meta">ฉบับเดิมยังอยู่ในประวัติ</span></div>
+    <p class="form-note">เดิม: ${esc(ev.summary)}</p>
+    <form data-form="amend" data-id="${esc(ev.id)}" class="form-grid">${fields}
+      <label class="f wide">เหตุผลที่แก้ไข (ต้องกรอก)<input class="in" name="reason" required placeholder="เช่น ชั่งซ้ำแล้วได้น้ำหนักจริง 2,950 หลอด"></label>
+      <div class="form-actions"><button type="submit" class="btn btn-solid">บันทึกการแก้ไข</button><a class="btn" href="#/log">ยกเลิก</a></div></form></section>`;
+}
+function voidPanel(ev) {
+  return `<section class="panel" aria-labelledby="vd-h"><div class="panel-h"><h2 id="vd-h">ลบรายการ</h2><span class="meta">ลบแล้วรายการไม่มีผลกับข้อมูล แต่ยังอยู่ในประวัติพร้อมเหตุผล</span></div>
+    <p class="form-note">จะลบ: ${esc(ev.summary)}</p>
+    <form data-form="void" data-id="${esc(ev.id)}" class="form-grid"><label class="f wide">เหตุผลที่ลบ (ต้องกรอก)<input class="in" name="reason" required placeholder="เช่น บันทึกซ้ำ"></label>
+      <div class="form-actions"><button type="submit" class="btn btn-crit">ยืนยันลบ</button><a class="btn" href="#/log">ยกเลิก</a></div></form></section>`;
+}
+function viewLog(p) {
+  const editId = p.get('edit'), delId = p.get('del');
+  const show = p.get('show') || '';
+  const evs = S.events.filter((e) => e.type !== 'noteRead').slice().reverse().filter((e) => !show || e.type === 'amend' || e.type === 'void' || S.evState.get(e.id)?.status !== 'active');
+  const target = eventById(editId || delId);
+  let panel = '';
+  if (target) {
+    const info = editInfo(target);
+    const key = permKey(target);
+    if (!info.ok) panel = `<p class="alerts-quiet">${chip('แก้หรือลบไม่ได้', 'warn')} ${esc(info.why || 'รายการนี้ถูกแก้ไขหรือลบไปแล้ว')}</p>`;
+    else if (!can(key)) panel = `<p class="alerts-quiet">${chip('ไม่มีสิทธิ์', 'warn')} แก้หรือลบรายการนี้ได้เฉพาะ${esc((CAN[key] || []).join(' หรือ '))}</p>`;
+    else if (editId && info.editable) panel = editPanel(target);
+    else panel = voidPanel(target);
+  }
+  const statusChip = (e) => {
+    const st = S.evState.get(e.id)?.status;
+    if (e.type === 'void') return chip('ลบ', 'crit');
+    if (st === 'amended') return chip('แก้ไขแล้ว', 'warn');
+    if (st === 'void') return chip('ลบแล้ว', 'crit');
+    if (e.type === 'amend') return chip('ฉบับแก้ไข', 'ink');
+    return chip('ใช้อยู่', 'ok');
+  };
+  const rows = evs.map((e) => {
+    const st = S.evState.get(e.id)?.status;
+    const info = editInfo(e);
+    const acts = info.ok ? `${info.editable ? `<a class="btn btn-sm" href="#/log?edit=${e.id}">${I.edit}แก้ไข</a> ` : ''}<a class="btn btn-sm btn-crit" href="#/log?del=${e.id}">ลบ</a>` : `<span class="sub-l">${esc(info.why)}</span>`;
+    return `<tr${(editId || delId) === e.id ? ' class="is-target" data-target' : ''}><td class="nowrap">${esc(new Date(e.at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))}</td><td>${esc(short(staff(e.user).name))}<span class="sub-l">${esc(staff(e.user).role)}</span></td><td>${chip(KIND_TH[e.type] || e.type, 'ink')}</td><td${st && st !== 'active' ? ' class="struck"' : ''}>${esc(e.summary)}${e.before ? `<span class="sub-l">ฉบับเดิม: ${esc(e.before)}</span>` : ''}</td><td>${esc(e.reason || '')}</td><td>${statusChip(e)}</td><td>${acts}</td></tr>`;
+  }).join('');
+  return `<header class="room-head"><div><h1>ประวัติการแก้ไข</h1><p class="sub">ทุกรายการที่บันทึกในเว็บแก้ไขหรือลบได้ ต้องใส่เหตุผล ฉบับเดิมไม่หาย บอกได้ว่าใคร ทำอะไร จากค่าอะไรเป็นค่าอะไร เมื่อไร</p></div>
+  <div class="acts"><button type="button" class="btn" data-act="exportLog" ${S.events.length ? '' : 'disabled'}>${I.download}ส่งออก CSV</button><button type="button" class="btn btn-crit" data-act="reset" ${S.events.length ? '' : 'disabled'}>ล้างข้อมูลทดลองทั้งหมด</button></div></header>
+  ${panel}
+  <section class="panel" aria-labelledby="lg-h"><div class="panel-h"><h2 id="lg-h">รายการที่บันทึกในเว็บ</h2><span class="meta">${evs.length} รายการ เก็บในเบราว์เซอร์เครื่องนี้เท่านั้น</span></div>
+  <div class="filters"><a class="fchip" href="#/log" ${show ? '' : 'aria-current="true"'}>ทั้งหมด</a><a class="fchip" href="#/log?show=changed" ${show ? 'aria-current="true"' : ''}>เฉพาะที่แก้ไขหรือลบ</a></div>
+  ${evs.length ? tableWrap(`<table><thead><tr><th>เวลา</th><th>ผู้ใช้</th><th>ประเภท</th><th>ทำอะไร</th><th>เหตุผล</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>${rows}</tbody></table>`, 'ประวัติการแก้ไข') : '<p class="empty">ยังไม่มี ลองรับของ เบิกของ เขียนใบขอซื้อ ย้ายการ์ด บันทึกผลตรวจ หรือแก้ทะเบียน แล้วกลับมาดูหน้านี้</p>'}</section>`;
+}
+function submitAmend(form) {
+  const target = eventById(form.dataset.id);
+  if (!target) return;
+  const type = target.type === 'amend' ? target.of : target.type;
+  const b = BUILD[type];
+  const f = new FormData(form);
+  const reason = String(f.get('reason') || '').trim();
+  if (!reason) return toast('ใส่เหตุผลที่แก้ไขก่อน', 'warn');
+  const inp = { ...target.input };
+  for (const [k, v] of f) if (k !== 'reason') inp[k] = v;
+  if (!can(b.key(inp))) return deny(b.key(inp), `แก้ไข${b.what}`);
+  const info = editInfo(target);
+  if (!info.ok) return toast(info.why, 'warn');
+  const r = withoutEvent(target.id, () => b.build(inp, keepOf(target)));
+  if (r.error) return toast(r.error, 'warn');
+  const diff = Object.keys(inp).filter((k) => String(inp[k]) !== String(target.input[k])).map((k) => `${k} ${target.input[k] || '-'} เป็น ${inp[k] || '-'}`).join(', ');
+  commit({ type: 'amend', of: type, target: target.id, input: inp, reason, before: target.summary, summary: `แก้ไข${b.what}: ${r.summary}${diff ? ` (${diff})` : ''}`, effects: r.effects });
+  toast('บันทึกการแก้ไขแล้ว ฉบับเดิมเก็บไว้ในประวัติ');
+  location.hash = '#/log?show=changed';
+}
+function submitVoid(form) {
+  const target = eventById(form.dataset.id);
+  if (!target) return;
+  const reason = String(new FormData(form).get('reason') || '').trim();
+  if (!reason) return toast('ใส่เหตุผลที่ลบก่อน', 'warn');
+  const key = permKey(target);
+  if (!can(key)) return deny(key, 'ลบรายการนี้');
+  const info = editInfo(target);
+  if (!info.ok) return toast(info.why, 'warn');
+  commit({ type: 'void', target: target.id, reason, summary: `ลบ: ${target.summary}`, effects: {} });
+  toast('ลบรายการแล้ว ยังดูได้ในประวัติพร้อมเหตุผล');
+  location.hash = '#/log?show=changed';
+}
+
+function recordPayment(invNo) {
+  if (!can('payment')) return deny('payment', 'บันทึกรับชำระ');
+  const v = S.invoices.find((x) => x.inv_no === invNo);
+  if (!v || v.paid_date) return toast('ใบนี้ชำระแล้ว', 'warn');
+  const ev = commit({ type: 'payment', input: { inv: invNo }, summary: `รับชำระ ${invNo} ${custName(v.customer_id)} ${money(v.total)}`, effects: { paid: [{ inv_no: invNo, paid_date: S.today }] } });
+  showSlip('sales', { k: 'สำเนาใบรับชำระ', no: invNo, title: `${custName(v.customer_id)} ${money(v.total)}`, lines: [`ครบกำหนด ${thaiDate(v.due_date)} รับชำระ ${thaiDate(S.today)}`], stamp: ['รับชำระแล้ว', 'ok'], links: [['ลบรายการนี้ถ้าบันทึกผิด', `#/log?del=${ev.id}`]] });
+  nav.route();
+}
+
+// ================= แถบด้านบน =================
+function renderChrome(id) {
+  const user = currentUser();
+  const tabId = id === 'product' ? 'registers' : id === 'doc' ? 'docs' : id;
+  const unread = unreadNotes().length;
+  $('#tabs').innerHTML = ROOMS.map((r) => {
+    const ok = canEnter(r, user.role);
+    const n = ok ? roomAlerts(r.id).filter((a) => a.level === 'crit').length : 0;
+    return `<a class="tab${ok ? '' : ' is-locked'}" href="#/${r.id}" ${r.id === tabId ? 'aria-current="page"' : ''}>${ok ? '' : I.lock}${esc(r.title)}${ok ? '' : '<span class="sr"> (ไม่มีสิทธิ์เข้า)</span>'}${n ? `<span class="count" title="วิกฤต ${n} เรื่อง"><span class="sr">วิกฤต </span>${n}<span class="sr"> เรื่อง</span></span>` : ''}</a>`;
+  }).join('') + '<span class="tab-sep" aria-hidden="true"></span>'
+    + TOOLS.map((t) => `<a class="tab tab-tool" href="#/${t.id}" ${t.id === tabId ? 'aria-current="page"' : ''}>${I[t.id] || ''}${esc(t.title)}${t.id === 'notes' && unread ? `<span class="count count-ink" title="ยังไม่ได้อ่าน ${unread} ฉบับ"><span class="sr">ยังไม่ได้อ่าน </span>${unread}</span>` : ''}</a>`).join('');
+  $('#user').innerHTML = S.base.staff.map((s) => `<option value="${s.user_id}" ${s.user_id === S.user ? 'selected' : ''}>${esc(short(s.name))} ${esc(s.role)}</option>`).join('');
+  $('#tabs [aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function viewLocked(room) {
+  const user = currentUser();
+  const people = S.base.staff.filter((s) => room.roles.includes(s.role));
+  return `<div class="locked"><article class="coupon">
+    <div class="stub">${svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>')}<span class="stub-k">ล็อกตามสิทธิ์</span><span class="stub-k">${room.roles.length} บทบาทเข้าได้</span></div>
+    <div class="cbody"><h1 class="k-t" style="font-size:1.25rem;padding-right:110px">${room.id === 'overview' ? 'ภาพรวมโรงงาน' : `ห้องทำงาน${esc(room.title)}`}</h1>
+      <p>ผู้ใช้ตอนนี้ ${esc(short(user.name))} ${esc(user.role)} ยังไม่มีสิทธิ์เข้าห้องนี้ ข้อมูล การกรอง และการแจ้งเตือนของห้องนี้แสดงเฉพาะผู้มีสิทธิ์</p>
+      <div><div class="stub-k">เปิดได้เฉพาะ</div><div class="roles">${room.roles.map((r) => chip(r, 'ink')).join('')}</div></div>
+      <div class="try">${people.map((s) => `<button type="button" class="btn btn-sm" data-act="become" data-user="${s.user_id}">ลองเป็น ${esc(short(s.name))} ${esc(s.role)}</button>`).join('')}</div>
+    </div>${stamp('ไม่มีสิทธิ์เข้า', 'crit')}
+  </article></div>`;
+}
+
+// ================= เส้นทางหน้า =================
+const VIEWS = { overview: viewOverview, store: viewStore, process: viewLaneRoom, prod: viewLaneRoom, qc: viewQC, sales: viewSales, notes: viewNotes, docs: viewDocs, doc: viewDocs, registers: viewRegisters, product: viewProduct, trace: viewTrace, log: viewLog };
+const TITLES = { product: 'ข้อมูลผลิตภัณฑ์', doc: 'เอกสาร' };
+let lastId = '';
+function parseHash() {
+  const m = location.hash.match(/^#\/([^?]*)\??(.*)$/);
+  return { id: m ? m[1] : '', params: new URLSearchParams(m ? m[2] : '') };
+}
+function route() {
+  const { id, params } = parseHash();
+  const user = currentUser();
+  if (!VIEWS[id]) { location.replace(`#/${homeRoom(user.role)}`); return; }
+  if (slipState.slip && slipState.slip.shown) slipState.slip = null;
+  const room = ROOMS.find((r) => r.id === id);
+  renderChrome(id);
+  const main = $('#main');
+  document.body.classList.toggle('is-doc', id === 'doc');
+  main.innerHTML = room && !canEnter(room, user.role) ? viewLocked(room) : VIEWS[id](params, room);
+  if (slipState.slip) slipState.slip.shown = true;
+  const title = room ? room.title : TITLES[id] || TOOLS.find((t) => t.id === id)?.title || '';
+  document.title = `${title} | ระบบหลังบ้านโรงงานยาสมุนไพร (ข้อมูลจำลอง)`;
+  if (id === 'notes') afterNotes(params);
+  const target = main.querySelector('[data-target], .kcard.is-target');
+  if (target) target.scrollIntoView({ block: 'center', inline: 'center' });
+  else if (id !== lastId) window.scrollTo(0, 0);
+  if (id !== lastId) main.focus({ preventScroll: true });
+  lastId = id;
+}
+nav.route = route;
+actions.submitNew = submitNew;
+
+const HANDLERS = {
+  click: { ...buyHandlers.click, ...registerHandlers.click, ...notesHandlers.click },
+  submit: { ...buyHandlers.submit, ...registerHandlers.submit, ...notesHandlers.submit },
+  change: { ...buyHandlers.change, ...registerHandlers.change },
+};
+
 function bind() {
   window.addEventListener('hashchange', route);
-  $('#user').addEventListener('change', (e) => { setUser(e.target.value); toast(`เปลี่ยนผู้ใช้เป็น ${currentUser().name} ${currentUser().role}`); route(); });
-  $('#theme').addEventListener('click', () => {
-    const dark = document.documentElement.dataset.theme !== 'dark';
-    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-    $('#theme').setAttribute('aria-pressed', String(dark));
-    try { localStorage.setItem('hfd-theme', dark ? 'dark' : 'light'); } catch { /* ไม่จำก็ได้ */ }
+  $('#user').addEventListener('change', (e) => {
+    setUser(e.target.value);
+    slipState.slip = null;
+    const u = currentUser();
+    toast(`เปลี่ยนผู้ใช้เป็น ${short(u.name)} ${u.role}`);
+    const next = `#/${homeRoom(u.role)}`;
+    if (location.hash === next) route(); else location.hash = next;
   });
   const main = $('#main');
   main.addEventListener('click', (e) => {
     const b = e.target.closest('[data-act]');
-    if (!b || b.tagName === 'SELECT' || b.tagName === 'INPUT') return;
+    if (!b || b.tagName === 'SELECT' || b.tagName === 'INPUT' || b.disabled) return;
     const act = b.dataset.act;
+    if (HANDLERS.click[act]) return HANDLERS.click[act](b, e);
     if (act === 'move') moveJob(b.dataset.job, Number(b.dataset.dir));
-    if (act === 'release') { const lot = b.dataset.lot; const reason = $(`#rs-${CSS.escape(lot)}`)?.value.trim() || ''; releaseLot(lot, b.dataset.res, reason); }
+    if (act === 'release') releaseLot(b.dataset.lot, b.dataset.res, document.getElementById(`rs-${b.dataset.lot}`)?.value.trim() || '');
+    if (act === 'pay') recordPayment(b.dataset.inv);
+    if (act === 'become') { setUser(b.dataset.user); toast(`เปลี่ยนผู้ใช้เป็น ${short(currentUser().name)} ${currentUser().role}`); route(); }
+    if (act === 'slipClose') { slipState.slip = null; route(); }
+    if (act === 'print') window.print();
     if (act === 'export') { download('lots-ข้อมูลจำลอง.csv', toCSV(S.lots, ['lot_no', 'item_code', 'qty_in', 'qty_left', 'date_in', 'exp_date', 'status', 'release_date', 'source', 'source_ref'])); download('moves-ข้อมูลจำลอง.csv', toCSV(S.moves, ['move_id', 'date', 'item_code', 'lot_no', 'type', 'qty', 'party', 'doc_no', 'user_id'])); }
-    if (act === 'exportLog') download('ประวัติการแก้ไข-ข้อมูลจำลอง.csv', toCSV(S.events.map((x) => ({ ...x, user_name: staff(x.user).name, role: staff(x.user).role })), ['at', 'user', 'user_name', 'role', 'type', 'summary', 'reason']));
-    if (act === 'reset' && confirm('ล้างทุกอย่างที่ทดลองกรอกในเบราว์เซอร์นี้ แล้วกลับไปใช้ข้อมูลจำลองตั้งต้น?')) { resetEvents(); toast('กลับไปใช้ข้อมูลจำลองตั้งต้นแล้ว'); route(); }
+    if (act === 'exportLog') download('ประวัติการแก้ไข-ข้อมูลจำลอง.csv', toCSV(S.events.map((x) => ({ ...x, user_name: staff(x.user).name, role: staff(x.user).role })), ['at', 'user', 'user_name', 'role', 'type', 'summary', 'reason', 'target']));
+    if (act === 'reset' && confirm('ล้างทุกอย่างที่ทดลองกรอกในเบราว์เซอร์นี้ แล้วกลับไปใช้ข้อมูลจำลองตั้งต้น?')) { resetEvents(); slipState.slip = null; toast('กลับไปใช้ข้อมูลจำลองตั้งต้นแล้ว'); route(); }
   });
   main.addEventListener('change', (e) => {
-    const act = e.target.dataset.act;
-    if (act === 'kind') location.hash = `#/stock?tab=list&kind=${encodeURIComponent(e.target.value)}`;
-    if (act === 'cardItem') location.hash = `#/stock?tab=card&item=${e.target.value}`;
-    if (act === 'recvItem') location.hash = `#/stock?tab=receive&item=${e.target.value}`;
-    if (act === 'issueItem') location.hash = `#/stock?tab=issue&item=${e.target.value}`;
+    const t = e.target;
+    const act = t.dataset.act;
+    if (!act) return;
+    if (HANDLERS.change[act]) return HANDLERS.change[act](t, e);
+    const f = t.form;
+    const code = codeOf(t.value);
+    if (['pickItem', 'recvItem', 'issueItem', 'jobItem'].includes(act) && !S.items.get(code)) return toast('ไม่พบรหัสนี้ เลือกจากรายการที่ขึ้นให้เลือก', 'warn');
+    if (act === 'pickItem') setHash(f.dataset.to, { tab: f.dataset.tab, item: code });
+    if (act === 'recvItem') setHash('store', { tab: 'receive', item: code });
+    if (act === 'issueItem') setHash('store', { tab: 'issue', item: code });
+    if (act === 'jobItem') setHash(f.dataset.room, { tab: 'new', item: code });
+    if (act === 'jobQty') setHash(f.dataset.room, { tab: 'new', item: codeOf(f.item.value), qty: t.value });
   });
+  main.addEventListener('input', (e) => onSimInput(e));
   main.addEventListener('submit', (e) => {
     const form = e.target.closest('[data-form]');
     if (!form) return;
     e.preventDefault();
-    if (form.dataset.form === 'receive') submitReceive(form);
-    if (form.dataset.form === 'issue') submitIssue(form);
-    if (form.dataset.form === 'trace') location.hash = `#/trace?lot=${encodeURIComponent(new FormData(form).get('lot').trim())}`;
+    const kind = form.dataset.form;
+    if (HANDLERS.submit[kind]) return HANDLERS.submit[kind](form, e);
+    const f = new FormData(form);
+    if (kind === 'receive') submitNew('receive', { item: codeOf(f.get('item')), po: f.get('po') || '', supplier: f.get('supplier'), qty: f.get('qty'), exp: f.get('exp') || '' });
+    if (kind === 'issue') submitNew('issue', { item: codeOf(f.get('item')), qty: f.get('qty'), to: String(f.get('to') || '').trim() });
+    if (kind === 'job') submitNew('job', { room: form.dataset.room, item: codeOf(f.get('item')), qty: f.get('qty') });
+    if (kind === 'qc') submitNew('qcResult', { lot: form.dataset.lot, result: f.get('result'), note: String(f.get('note') || '').trim() });
+    if (kind === 'amend') submitAmend(form);
+    if (kind === 'void') submitVoid(form);
+    if (kind === 'trace') setHash('trace', { lot: String(f.get('lot') || '').trim() });
+    if (kind === 'filter') setHash('store', { tab: 'stock', kind: f.get('kind'), lv: f.get('lv'), q: String(f.get('q') || '').trim() });
+    if (kind === 'pick') { const code = codeOf(f.get('item')); if (S.items.get(code)) setHash(form.dataset.to, { tab: form.dataset.tab, item: code }); }
+    if (kind === 'boardSearch') { const x = new URLSearchParams(location.hash.split('?')[1] || ''); const q = String(f.get('q') || '').trim(); if (q) x.set('q', q); else x.delete('q'); x.delete('job'); location.hash = `#/${form.dataset.here}?${x}`; }
+    if (kind === 'salesSearch') setHash('sales', { tab: 'sales', q: String(f.get('q') || '').trim() });
+    if (kind === 'docOpen') { const o = { type: form.dataset.type }; for (const [k, v] of f) o[k] = v; setHash('doc', o); }
+    if (kind === 'planSearch') setHash(form.dataset.room, { tab: 'plan', kind: f.get('kind'), q: String(f.get('q') || '').trim() });
+    if (kind === 'fgSearch') setHash('sales', { tab: 'stock', q: String(f.get('q') || '').trim() });
   });
   // ลากวางการ์ดบนบอร์ด (ย้ายได้ทีละขั้น)
   let dragJob = null;
-  main.addEventListener('dragstart', (e) => { const c = e.target.closest('[data-job][draggable]'); if (c) { dragJob = c.dataset.job; e.dataTransfer.effectAllowed = 'move'; } });
-  main.addEventListener('dragover', (e) => { if (dragJob && e.target.closest('[data-drop]')) e.preventDefault(); });
+  const colOf = (e) => e.target.closest('[data-drop]');
+  main.addEventListener('dragstart', (e) => { const c = e.target.closest('.kcard[draggable]'); if (c) { dragJob = c.dataset.job; e.dataTransfer.effectAllowed = 'move'; } });
+  main.addEventListener('dragover', (e) => { const col = colOf(e); if (dragJob && col) { e.preventDefault(); col.classList.add('is-over'); } });
+  main.addEventListener('dragleave', (e) => { const col = colOf(e); if (col && !col.contains(e.relatedTarget)) col.classList.remove('is-over'); });
+  main.addEventListener('dragend', () => { dragJob = null; main.querySelectorAll('.is-over').forEach((x) => x.classList.remove('is-over')); });
   main.addEventListener('drop', (e) => {
-    const col = e.target.closest('[data-drop]');
+    const col = colOf(e);
     if (!col || !dragJob) return;
     e.preventDefault();
     const card = D.board.find((c) => c.job.job_id === dragJob);
@@ -629,18 +996,17 @@ function bind() {
     if (!card || card.job.lane !== col.dataset.lane) return toast('ย้ายข้ามฝ่ายไม่ได้', 'warn');
     const st = LANES[card.job.lane].stages;
     const diff = st.indexOf(col.dataset.drop) - st.indexOf(card.stage);
-    if (diff === 0) return;
-    if (Math.abs(diff) !== 1) return toast('ย้ายได้ทีละขั้น ตามลำดับงานใน SOP', 'warn');
+    if (diff === 0) return route();
+    if (Math.abs(diff) !== 1) { toast('ย้ายได้ทีละขั้น ตามลำดับงานใน SOP', 'warn'); return route(); }
     moveJob(card.job.job_id, diff);
   });
 }
 
 async function start() {
-  try { const t = localStorage.getItem('hfd-theme'); if (t) document.documentElement.dataset.theme = t; } catch { /* ใช้ค่าตั้งต้น */ }
   try {
     await loadAll();
   } catch (err) {
-    $('#main').innerHTML = `<section class="panel"><h2>เปิดข้อมูลจำลองไม่ได้</h2><p>${esc(err.message)}</p><p class="small muted">ถ้าเปิดไฟล์จากเครื่องโดยตรง ให้เปิดผ่านเว็บเซิร์ฟเวอร์ เช่น python3 -m http.server</p></section>`;
+    $('#main').innerHTML = `<section class="panel"><h2>เปิดข้อมูลจำลองไม่ได้</h2><p>${esc(err.message)}</p><p class="note">ถ้าเปิดไฟล์จากเครื่องโดยตรง ให้เปิดผ่านเว็บเซิร์ฟเวอร์ เช่น python3 -m http.server</p></section>`;
     return;
   }
   bind();
