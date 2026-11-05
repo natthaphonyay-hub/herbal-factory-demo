@@ -13,7 +13,7 @@ function refLink(ref) {
   if (S.pos.some((p) => p.po_no === r)) return `<a href="#/store?tab=buy&po=${encodeURIComponent(r)}">${esc(r)}</a>`;
   if (S.prs.some((p) => p.pr_no === r)) return `<a href="#/store?tab=buy&pr=${encodeURIComponent(r)}">${esc(r)}</a>`;
   const job = S.jobs.find((j) => j.job_id === r);
-  if (job) return `<a href="#/${job.lane === 'ผลิต' ? 'prod' : 'process'}?tab=board&job=${encodeURIComponent(r)}">${esc(r)}</a>`;
+  if (job) return `<a href="#/job?id=${encodeURIComponent(r)}">${esc(r)}</a>`;
   if (S.invoices.some((v) => v.inv_no === r)) return `<a href="#/doc?type=fm19&inv=${encodeURIComponent(r)}">${esc(r)}</a>`;
   return esc(r);
 }

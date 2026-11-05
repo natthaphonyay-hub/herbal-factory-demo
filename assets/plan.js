@@ -2,7 +2,7 @@
 // วิธีพยากรณ์: ปรับเรียบเอกซ์โพเนนเชียลแบบมีแนวโน้มหน่วง (Hyndman และ Athanasopoulos, FPP3 2021 บทที่ 8)
 import { S, D, monthlyUsage, active, producing, isFG, fyOf } from './data.js';
 import { holtForecast, holdoutError } from './logic.js';
-import { esc, num, qty, qh, I, chip, tableWrap, monthLabel } from './ui.js';
+import { esc, num, qty, qh, I, chip, tableWrap, monthLabel, itemHref } from './ui.js';
 
 const KINDS = ['ยารับประทาน', 'ยาใช้ภายนอก', 'แห้ง', 'ผง', 'บรรจุภัณฑ์', 'เคมีภัณฑ์', 'ฉลาก'];
 const cache = new Map();
@@ -25,7 +25,7 @@ export function nextMonths(n) {
 }
 export const reliability = (err) => (err === null ? { t: 'ข้อมูลน้อย', lv: 'exp' } : err <= 0.15 ? { t: `แม่น ±${num(err * 100)}%`, lv: 'ok' } : err <= 0.35 ? { t: `พอใช้ ±${num(err * 100)}%`, lv: 'warn' } : { t: `แกว่ง ±${num(err * 100)}%`, lv: 'crit' });
 
-function chart(code) {
+export function chart(code) {
   const f = forecastOf(code);
   const it = S.items.get(code);
   const months = [...f.hist.map((h) => ({ k: h.month, v: h.qty, a: true })), ...nextMonths(12).map((k, i) => ({ k, v: f.fc[i], a: false }))];
@@ -64,7 +64,7 @@ export function viewPlan(p, scope, room) {
       <p class="note">พยากรณ์ด้วยวิธีปรับเรียบเอกซ์โพเนนเชียลแบบมีแนวโน้มหน่วง เลือกค่าพารามิเตอร์ที่คลาดเคลื่อนน้อยสุดจากข้อมูล 12 เดือน (Hyndman และ Athanasopoulos, Forecasting: Principles and Practice 3rd ed. 2021 บทที่ 8) ความแม่นย้อนหลัง = ตัด 3 เดือนล่าสุดออก พยากรณ์จากเดือนที่เหลือ แล้วเทียบของจริง เกณฑ์แม่น พอใช้ แกว่ง ที่ 15% และ 35% บรรตั้งเอง</p>
     </section>
     <div class="stack">
-      ${selRow ? `<section class="panel" aria-labelledby="fd-h"><div class="panel-h"><h2 id="fd-h">${esc(selRow.it.name)}</h2><a href="${link({ item: '' })}">ปิด</a></div>${chart(sel)}
+      ${selRow ? `<section class="panel" aria-labelledby="fd-h"><div class="panel-h"><h2 id="fd-h">${esc(selRow.it.name)}</h2><span class="meta"><a href="${itemHref(selRow.it.code)}">ดูรายละเอียด</a> <a href="${link({ item: '' })}">ปิด</a></span></div>${chart(sel)}
         <dl class="fields" style="margin-top:10px"><div><dt>คงคลังตรวจสอบแล้ว</dt><dd>${esc(qty(sel, selRow.released))}</dd></div><div><dt>พยากรณ์ 12 เดือนข้างหน้า</dt><dd>${esc(qty(sel, forecastOf(sel).fc.slice(0, 12).reduce((a, b) => a + b, 0)))}</dd></div><div><dt>จำนวนอย่างต่ำ</dt><dd>${esc(qty(sel, selRow.pol.rop))}</dd></div><div><dt>ความแม่นย้อนหลัง</dt><dd>${esc(reliability(forecastOf(sel).err).t)}</dd></div></dl></section>` : ''}
       <section class="panel" aria-labelledby="pd-h"><div class="panel-h"><h2 id="pd-h">เอกสารจากข้อมูลนี้</h2></div>
         <ul class="doc-list">

@@ -2,7 +2,7 @@
 // ขั้นตอนตามชุดแบบฟอร์มวิธีเฉพาะเจาะจงใน OF06 (พ.ร.บ. จัดซื้อจัดจ้าง 2560 ม.56 (2)(ข) ระเบียบกระทรวงการคลัง 2560 ข้อ 22 และ 79)
 import { CONFIG, PROC, PROC_STEPS, CAN } from './config.js';
 import { S, D, commit, currentUser, thaiDate, daysBetween, addDays, poForecast, prStage, nextPrNo, nextPoNo, active, staff } from './data.js';
-import { esc, num, baht, qty, qh, short, I, chip, tableWrap, supName, toast, can, deny, roleNote, nav, setHash, showSlip, itemPicker, codeOf, actions } from './ui.js';
+import { esc, num, baht, qty, qh, short, I, chip, tableWrap, supName, toast, can, deny, roleNote, nav, setHash, showSlip, itemPicker, codeOf, actions, itemLink } from './ui.js';
 
 const STEP = Object.fromEntries(PROC_STEPS.map((s, i) => [s.key, { ...s, i }]));
 const DOCS = {
@@ -89,7 +89,7 @@ export function viewBuy(p) {
     const it = S.items.get(r.item_code);
     const waited = daysBetween(st.since, S.today);
     const late = waited > CONFIG.procWaitDays && ['head_ok', 'dir_ok', 'ordered', 'inspected', 'pay_requested'].includes(st.key);
-    return `<tr${target === r.pr_no || (poT && r.po_no === poT) ? ' class="is-target" data-target' : ''}><td class="code">${esc(r.pr_no)}${r.po_no ? `<span class="sub-l">${esc(r.po_no)}</span>` : ''}</td><td>${esc(it.name)}<span class="sub-l">${esc(short(supName(r.supplier_id)))}</span></td><td class="r">${qh(r.item_code, r.qty)}</td><td class="r"><span class="num">${baht(r.amount)}</span></td>
+    return `<tr${target === r.pr_no || (poT && r.po_no === poT) ? ' class="is-target" data-target' : ''}><td class="code">${esc(r.pr_no)}${r.po_no ? `<span class="sub-l">${esc(r.po_no)}</span>` : ''}</td><td>${itemLink(it)}<span class="sub-l">${esc(short(supName(r.supplier_id)))}</span></td><td class="r">${qh(r.item_code, r.qty)}</td><td class="r"><span class="num">${baht(r.amount)}</span></td>
       <td>${chip(`รอ${st.title}`, late ? 'warn' : 'ink')}<span class="sub-l">${waited} วันในขั้นนี้</span></td><td class="doc-links">${docLinks(r)}</td><td><div class="inline-form">${nextAction(r, st)}</div></td></tr>`;
   };
   const poOpen = [...D.itemStats.values()].flatMap((s) => s.poViews.map((v) => ({ s, v }))).sort((a, b) => a.v.prob - b.v.prob);
@@ -101,10 +101,10 @@ export function viewBuy(p) {
   <div class="work">
     <section class="panel" aria-labelledby="po-h"><div class="panel-h"><h2 id="po-h">ใบสั่งซื้อค้างรับ จะมาทันไหม</h2><span class="meta">${poOpen.length} ใบ คำนวณจากประวัติส่งของจริงของผู้ขาย</span></div>
     ${tableWrap(`<table><thead><tr><th>เลขที่</th><th>รายการ</th><th class="r">จำนวน</th><th>คาดถึง</th><th>ของหมด</th><th class="r">โอกาสทัน</th><th>ผล</th></tr></thead><tbody>
-    ${poOpen.map(({ s, v }) => `<tr${poT === v.po.po_no ? ' class="is-target" data-target' : ''}><td class="code">${esc(v.po.po_no)}</td><td>${esc(s.it.name)}<span class="sub-l">${esc(short(v.sl.supplier.name))} ส่งเฉลี่ย ${num(v.sl.L)} ±${num(v.sl.sL)} วัน</span></td><td class="r">${qh(s.it.code, v.po.qty)}</td><td class="nowrap">${esc(thaiDate(v.expected))}</td><td class="nowrap">${s.stockoutDate ? esc(thaiDate(s.stockoutDate)) : '-'}</td><td class="r"><span class="num"><b>${num(v.prob * 100)}%</b></span></td><td>${chip(v.verdict.text, v.verdict.level)}</td></tr>`).join('')}</tbody></table>`, 'ใบสั่งซื้อค้างรับ')}</section>
+    ${poOpen.map(({ s, v }) => `<tr${poT === v.po.po_no ? ' class="is-target" data-target' : ''}><td class="code">${esc(v.po.po_no)}</td><td>${itemLink(s.it)}<span class="sub-l">${esc(short(v.sl.supplier.name))} ส่งเฉลี่ย ${num(v.sl.L)} ±${num(v.sl.sL)} วัน</span></td><td class="r">${qh(s.it.code, v.po.qty)}</td><td class="nowrap">${esc(thaiDate(v.expected))}</td><td class="nowrap">${s.stockoutDate ? esc(thaiDate(s.stockoutDate)) : '-'}</td><td class="r"><span class="num"><b>${num(v.prob * 100)}%</b></span></td><td>${chip(v.verdict.text, v.verdict.level)}</td></tr>`).join('')}</tbody></table>`, 'ใบสั่งซื้อค้างรับ')}</section>
     <section class="panel" aria-labelledby="dn-h"><div class="panel-h"><h2 id="dn-h">จบแล้วล่าสุด</h2><span class="meta">จ่ายเงินแล้ว ${all.filter((x) => x.st.key === 'done').length} ใบ ไม่อนุมัติ ${rejected.length} ใบ</span></div>
-    <ul class="mini">${done.map(({ r }) => `<li><span class="t"><span class="mono">${esc(r.pr_no)}</span> ${esc(S.items.get(r.item_code).name)}<span class="d">จ่ายเงิน ${esc(thaiDate(r.paid))} ${baht(r.amount)} บาท</span></span><span class="doc-links">${docLinks(r)}</span></li>`).join('') || '<li class="empty">ยังไม่มี</li>'}
-    ${rejected.map(({ r }) => `<li><span class="t"><span class="mono">${esc(r.pr_no)}</span> ${esc(S.items.get(r.item_code).name)}<span class="d">ไม่อนุมัติ ${esc(thaiDate(r.rejected))} ${esc(r.reject_reason || '')}</span></span>${chip('ไม่อนุมัติ', 'crit')}</li>`).join('')}</ul>
+    <ul class="mini">${done.map(({ r }) => `<li><span class="t"><span class="mono">${esc(r.pr_no)}</span> ${itemLink(r.item_code)}<span class="d">จ่ายเงิน ${esc(thaiDate(r.paid))} ${baht(r.amount)} บาท</span></span><span class="doc-links">${docLinks(r)}</span></li>`).join('') || '<li class="empty">ยังไม่มี</li>'}
+    ${rejected.map(({ r }) => `<li><span class="t"><span class="mono">${esc(r.pr_no)}</span> ${itemLink(r.item_code)}<span class="d">ไม่อนุมัติ ${esc(thaiDate(r.rejected))} ${esc(r.reject_reason || '')}</span></span>${chip('ไม่อนุมัติ', 'crit')}</li>`).join('')}</ul>
     <ul class="note"><li>สต็อกกันชน = Z × √(L̄·σd² + d̄²·σL²) (Gallego, Columbia 2004 ข้อ 1.3.1 และ King, APICS magazine 2011)</li><li>จำนวนอย่างต่ำ = d̄ × L̄ + สต็อกกันชน และจำนวนอย่างสูง = d̄ × (R + L̄) + Z × σ(R+L) (MIT OCW ESD.260J 2006 บทที่ 11 และ 12)</li><li>โอกาสมาทัน = Φ((วันที่ของหมด − วันที่สั่ง − L̄) ÷ σL) ทัน เมื่อถึงระดับบริการเป้าหมาย เสี่ยง เมื่อ 50% ขึ้นไป (เกณฑ์ตั้งเอง แก้ได้ที่ assets/config.js)</li></ul></section>
   </div>`;
 }

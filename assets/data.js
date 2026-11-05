@@ -232,6 +232,14 @@ export function round(code, q) { const it = S.items.get(code); return it && UNIT
 export const usable = (l) => l.status === 'ตรวจสอบแล้ว' && l.qty_left > 1e-9 && (!l.exp_date || l.exp_date > S.today);
 export const isFG = (it) => !!it && (it.kind === 'ยารับประทาน' || it.kind === 'ยาใช้ภายนอก');
 export const bomOf = (code) => S.bom.filter((r) => r.out_item === code);
+// วัตถุดิบที่ต้องใช้ตามสูตร เทียบของที่ตรวจสอบแล้วในคลัง
+export function bomNeeds(code, q) {
+  return bomOf(code).map((b) => {
+    const need = round(b.in_item, b.qty_per_unit * q);
+    const have = (S.lotsByItem.get(b.in_item) || []).filter(usable).reduce((s, l) => s + l.qty_left, 0);
+    return { code: b.in_item, need, have, ok: have + 1e-9 >= need };
+  });
+}
 export function bomVersions(code) {
   return S.bomVer.get(code) || [{ v: 1, rows: bomOf(code).map((r) => ({ in_item: r.in_item, qty_per_unit: r.qty_per_unit })), at: '', user: '', reason: 'สูตรตั้งต้นในทะเบียน', fm40: '' }];
 }

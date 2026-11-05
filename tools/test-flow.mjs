@@ -73,7 +73,7 @@ await sleep(300);
 await ev(`localStorage.clear(); localStorage.setItem('hfd-user', JSON.stringify('U00')); true`);
 
 // 1 ทุกหน้าไม่ล้นจอ (ผู้ใช้หัวหน้ากลุ่มงาน เข้าได้ทุกห้อง)
-const pages = ['overview', 'store', 'store?tab=card', 'store?tab=receive', 'store?tab=issue', 'store?tab=buy', 'store?tab=plan&item=91004', 'process', 'process?tab=new', 'process?tab=farm', 'prod', 'prod?tab=materials', 'prod?tab=plan', 'qc', 'qc?tab=released', 'sales', 'sales?tab=sales', 'sales?tab=stock', 'notes?compose=1', 'docs', 'doc?type=fm02', 'doc?type=fy-plan', 'registers', 'registers?tab=assets&id=EQ-15', 'registers?tab=suppliers', 'product?code=5001', 'trace', 'log'];
+const pages = ['overview', 'store', 'store?tab=card', 'store?tab=receive', 'store?tab=issue', 'store?tab=buy', 'store?tab=plan&item=91004', 'process', 'process?tab=new', 'process?tab=farm', 'prod', 'prod?tab=materials', 'prod?tab=plan', 'qc', 'qc?tab=released', 'sales', 'sales?tab=sales', 'sales?tab=stock', 'notes?compose=1', 'docs', 'doc?type=fm02', 'doc?type=fy-plan', 'registers', 'registers?tab=assets&id=EQ-15', 'registers?tab=suppliers', 'product?code=5001', 'item?code=1001', 'item?code=2004', 'item?code=91004', 'job?id=J70-839', 'trace', 'log'];
 for (const w of [390, 768]) {
   const bad = [];
   for (const p of pages) {
@@ -97,6 +97,32 @@ check('เปลี่ยนผู้ใช้แล้วเข้าห้อ�
 // 3 คนตรวจกับคนอนุมัติคนละคน: หัวหน้า QC อนุมัติล็อตที่ยังไม่มีผลตรวจไม่ได้
 const noResult = await ev(`(() => { const b = [...document.querySelectorAll('[data-act="release"][data-res="ผ่าน"]')].find((x) => x.disabled); return b ? b.dataset.lot : ''; })()`);
 check('ล็อตที่ยังไม่มีผลตรวจ ปุ่มปล่อยผ่านกดไม่ได้', !!noResult, noResult);
+
+// 3b กดการ์ดหรือชื่อรายการ แล้วไปหน้ารายละเอียดของตัวเอง
+await setUser('U03');
+await go('prod');
+const cardJob = await ev(`document.querySelector('.kcard .k-link')?.closest('.kcard').dataset.job || ''`);
+await ev(`document.querySelector('.kcard .k-link').click(); true`);
+await sleep(400); await ready();
+const jobPage = await ev(`({ hash: location.hash, h1: document.querySelector('h1')?.textContent || '', steps: document.querySelectorAll('.steps li').length, now: document.querySelector('.steps li.is-now .st-t')?.textContent || '' })`);
+check('กดการ์ดงานบนบอร์ด เปิดหน้ารายละเอียดงาน เห็นขั้นงานตาม SOP และขั้นปัจจุบัน', jobPage.hash === `#/job?id=${cardJob}` && jobPage.h1.includes(cardJob) && jobPage.steps === 6 && !!jobPage.now, `${cardJob} ขั้น ${jobPage.now}`);
+await setUser('U01');
+await go('store');
+const firstItem = await ev(`document.querySelector('#main table a.ilink')?.getAttribute('href') || ''`);
+await ev(`document.querySelector('#main table a.ilink').click(); true`);
+await sleep(400); await ready();
+const itemPage = await ev(`({ hash: location.hash, lots: !!document.querySelector('#lots-h'), moves: !!document.querySelector('#mv-h') })`);
+check('กดชื่อรายการในตารางคลัง เปิดหน้ารายละเอียด เห็นล็อตเรียงลำดับเบิกและรับจ่ายล่าสุด', !!firstItem && itemPage.hash === firstItem && itemPage.lots && itemPage.moves, firstItem);
+await go('store');
+const couponHref = await ev(`document.querySelector('.coupon .c-link')?.getAttribute('href') || ''`);
+await ev(`document.querySelector('.coupon .c-link').click(); true`);
+await sleep(400); await ready();
+check('กดคูปองแจ้งเตือน เปิดหน้าของเรื่องที่ถูกเตือน', !!couponHref && (await ev('location.hash')) === couponHref, couponHref);
+await go('item?code=1001');
+check('หน้าสมุนไพรสดแสดงเส้นทาง สด แห้ง ผง ของสมุนไพรเดียวกัน และกดไปรูปแบบอื่นได้', (await count('.herb-route li')) === 3 && (await count('.herb-route a.ilink')) === 2);
+await setUser('U07');
+await go(`job?id=${cardJob}`);
+check('เจ้าหน้าที่ฝ่ายขายเปิดหน้ารายละเอียดงานผลิตไม่ได้ เห็นป้ายไม่มีสิทธิ์', (await count('.locked')) === 1);
 
 // 4 งานทั้งสาย: รับหลอดตามใบสั่งซื้อ บันทึกผล ปล่อยผ่าน แล้วงานครีมที่หยุดเดินต่อ
 await setUser('U01');

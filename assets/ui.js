@@ -1,6 +1,6 @@
 // ชิ้นส่วนหน้าจอที่ทุกห้องใช้ร่วมกัน: ตัวเลข ตราประทับ คูปอง สำเนาคาร์บอน ปุ่มเลือกรายการ และการตรวจสิทธิ์
 import { CAN, DEPTS, ROLE_ABBR } from './config.js';
-import { S, currentUser, isIntUnit, thaiDate, thaiLongDate, daysBetween, staff } from './data.js';
+import { S, currentUser, isIntUnit, isFG, thaiDate, thaiLongDate, daysBetween, staff } from './data.js';
 
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -42,6 +42,17 @@ export const chip = (text, lv) => `<span class="chip ch-${lv}">${esc(text)}</spa
 const LOT_LV = { 'รอปล่อยผ่าน': 'hold', 'ตรวจสอบแล้ว': 'pass', 'ไม่ผ่าน': 'fail', 'หมดอายุ': 'exp' };
 export const lotChip = (status) => chip(status, LOT_LV[status] || 'exp');
 export const stamp = (text, lv, anim = false) => `<span class="stamp st-${lv}${anim ? ' stamp-in' : ''}">${esc(text)}</span>`;
+// ลิงก์ไปหน้ารายละเอียด: ยาสำเร็จรูปไปหน้าผลิตภัณฑ์ (สูตร ต้นทุน คลัง) รายการอื่นไปหน้ารายการ งานไปหน้างาน
+export const itemHref = (code) => (isFG(S.items.get(code)) ? `#/product?code=${encodeURIComponent(code)}` : `#/item?code=${encodeURIComponent(code)}`);
+export function itemLink(itOrCode, text) {
+  const it = typeof itOrCode === 'string' ? S.items.get(itOrCode) : itOrCode;
+  if (!it) return esc(text ?? itOrCode);
+  return `<a class="ilink" href="${itemHref(it.code)}">${esc(text ?? it.name)}</a>`;
+}
+export const jobHref = (id) => `#/job?id=${encodeURIComponent(id)}`;
+export const jobLink = (id, text) => `<a class="mono" href="${jobHref(id)}">${esc(text ?? id)}</a>`;
+// คูปองแต่ละใบกดไปหน้าของเรื่องนั้น: งานที่หยุด รายการ เครื่องมือ หรือลูกค้า
+const subjectHref = (a) => (a.job ? jobHref(a.job) : a.item ? itemHref(a.item) : a.asset ? `#/registers?tab=assets&id=${encodeURIComponent(a.asset)}` : a.customer ? `#/sales?tab=ar&cust=${encodeURIComponent(a.customer)}` : '');
 export const tableWrap = (inner, label) => `<div class="table-wrap" role="region" aria-label="${esc(label)}" tabindex="0">${inner}</div>`;
 export const supName = (id) => S.base.suppliers.find((s) => s.supplier_id === id)?.name || id;
 export const custName = (id) => S.base.customers.find((c) => c.customer_id === id)?.name || id;
@@ -127,14 +138,14 @@ const keepCodes = (html) => html.replace(/((?:[A-Z]{1,3}|[ก-ฮ]{2})\d{2}-\d{3
 export function coupon(a) {
   return `<article class="coupon lv-${a.level}">
     <div class="stub"><span class="stub-k">${esc(a.stub.k)}</span><span class="stub-n">${esc(a.stub.n)}${a.stub.u ? `<small>${esc(a.stub.u)}</small>` : ''}</span><span class="stub-ref">${esc(a.stub.ref || '')}</span></div>
-    <div class="cbody"><h3><span class="sr">${LEVEL_TEXT[a.level]} </span>${keepCodes(esc(a.title))}</h3>
+    <div class="cbody"><h3><span class="sr">${LEVEL_TEXT[a.level]} </span>${subjectHref(a) ? `<a class="c-link" href="${subjectHref(a)}">${keepCodes(esc(a.title))}</a>` : keepCodes(esc(a.title))}</h3>
       <dl class="fields">${a.fields.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
       ${a.timeline ? routeBar(a.timeline) : ''}
       <a class="go" href="#/${a.go}">${esc(a.actionText)}${I.arrow}</a></div>
     ${stamp(a.stamp, a.level)}
   </article>`;
 }
-const compactAlert = (a) => `<li>${chip(a.stamp, a.level)}<span class="t">${keepCodes(esc(a.title))}<span class="d">${esc(a.detail)}</span></span><a href="#/${a.go}">${esc(a.actionText)}</a></li>`;
+const compactAlert = (a) => `<li>${chip(a.stamp, a.level)}<span class="t">${subjectHref(a) ? `<a href="${subjectHref(a)}">${keepCodes(esc(a.title))}</a>` : keepCodes(esc(a.title))}<span class="d">${esc(a.detail)}</span></span><a href="#/${a.go}">${esc(a.actionText)}</a></li>`;
 export function alertsBlock(alerts, emptyText) {
   if (!alerts.length) return `<p class="alerts-quiet">${chip('ปกติ', 'ok')} ${esc(emptyText || 'ไม่มีแจ้งเตือนของฝ่ายวันนี้ ระบบจะขึ้นคูปองเมื่อมีของใกล้หมด ของมาไม่ทัน ของใกล้หมดอายุ เครื่องมือใกล้ครบกำหนด หรืองานหยุด')}</p>`;
   const top = alerts.slice(0, 3);

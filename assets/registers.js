@@ -2,7 +2,8 @@
 // ทุกการแก้ทะเบียนเป็นเหตุการณ์ที่มีเหตุผล ฉบับเดิมยังอยู่ ลบ = เลิกใช้ (ข้อมูลเก่ายังอ้างถึงได้)
 import { CONFIG } from './config.js';
 import { S, D, commit, currentUser, staff, active, producing, isFG, thaiDate, daysBetween, assetDue, costOf, bomOf, bomVersions, nextAssetId, MASTER, addDays } from './data.js';
-import { esc, num, baht, qty, qh, short, I, chip, tableWrap, supName, who, toast, can, deny, roleNote, nav, setHash, showSlip, slipBlock, head, seg, itemPicker, codeOf } from './ui.js';
+import { esc, num, baht, qty, qh, short, I, chip, tableWrap, supName, who, toast, can, deny, roleNote, nav, setHash, showSlip, slipBlock, head, seg, itemPicker, codeOf, itemLink, jobLink } from './ui.js';
+import { lotsPanel, movesPanel } from './detail.js';
 
 const STATUS_LV = { 'ผลิตอยู่': 'ok', 'พักผลิต': 'warn', 'ยกเลิกผลิต': 'exp' };
 const TABLE_KEY = { suppliers: 'supMaster', customers: 'custMaster', items: 'productMaster', assets: 'assetMaster' };
@@ -120,7 +121,7 @@ function regItems(p) {
     <div class="filters">${['', 'สด', 'แห้ง', 'ผง', 'บรรจุภัณฑ์', 'เคมีภัณฑ์', 'ฉลาก'].map((k) => `<a class="fchip" href="${link({ kind: k })}" ${k === kind ? 'aria-current="true"' : ''}>${esc(k || 'ทั้งหมด')}</a>`).join('')}
       <form class="search" data-form="regSearch" data-tab="items" role="search"><label class="sr" for="iq">ค้นรายการ</label><input class="in" id="iq" name="q" value="${esc(p.get('q') || '')}" placeholder="ค้นชื่อหรือรหัส"><input type="hidden" name="kind" value="${esc(kind)}"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form></div>
     ${tableWrap(`<table><thead><tr><th>รหัส</th><th>รายการ</th><th>ประเภท</th><th>หน่วย</th><th class="r">ราคาต่อหน่วย</th><th>ผู้ขายประจำ</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>
-    ${rows.slice(0, 120).map((it) => `<tr${it.code === editKey ? ' class="is-target" data-target' : ''}><td class="code">${it.code}</td><td>${esc(it.name)}</td><td>${esc(it.kind)}</td><td>${esc(it.unit)}</td><td class="r"><span class="num">${baht(it.cost || 0)}</span></td><td>${esc(it.supplier_id ? short(supName(it.supplier_id)) : it.make === 'farm' ? 'เกษตรกร' : 'ผลิตเอง')}</td><td>${active(it) ? chip('ใช้อยู่', 'ok') : chip('เลิกใช้', 'exp')}</td>
+    ${rows.slice(0, 120).map((it) => `<tr${it.code === editKey ? ' class="is-target" data-target' : ''}><td class="code">${it.code}</td><td>${itemLink(it)}</td><td>${esc(it.kind)}</td><td>${esc(it.unit)}</td><td class="r"><span class="num">${baht(it.cost || 0)}</span></td><td>${esc(it.supplier_id ? short(supName(it.supplier_id)) : it.make === 'farm' ? 'เกษตรกร' : 'ผลิตเอง')}</td><td>${active(it) ? chip('ใช้อยู่', 'ok') : chip('เลิกใช้', 'exp')}</td>
       <td class="nowrap"><a class="btn btn-sm" href="${link({ edit: it.code })}">${I.edit}แก้ไข</a> <button type="button" class="btn btn-sm${active(it) ? ' btn-crit' : ''}" data-act="toggleActive" data-table="items" data-key="${it.code}" ${can('productMaster') ? '' : 'disabled'}>${active(it) ? 'เลิกใช้' : 'กลับมาใช้'}</button></td></tr>`).join('')}</tbody></table>`, 'ทะเบียนวัสดุและวัตถุดิบ')}
     ${rows.length > 120 ? '<p class="note">แสดง 120 รายการแรก ใช้ตัวกรองหรือช่องค้น</p>' : ''}</section>
     ${historyOf((e) => e.type === 'master' && e.effects?.master?.[0]?.table === 'items' && !isFG(S.items.get(e.effects.master[0].key)))}`;
@@ -128,7 +129,7 @@ function regItems(p) {
 
 // ================= หน้าข้อมูลผลิตภัณฑ์ =================
 // แถวในตารางสูตร (ใช้ทั้งตอนเปิดหน้าและตอนกดเพิ่มแถว) บนมือถือเรียงเป็นแผ่นมีป้ายกำกับ
-const simRow = (r, i) => `<tr data-line="${esc(r.code)}"><td class="t-name">${esc(r.name)}<span class="sub-l">${esc(r.kind)} ${esc(r.code)}</span></td>
+const simRow = (r, i) => `<tr data-line="${esc(r.code)}"><td class="t-name">${itemLink(r.code, r.name)}<span class="sub-l">${esc(r.kind)} ${esc(r.code)}</span></td>
     <td class="r t-qty" data-l="ปริมาณต่อหน่วย"><label class="sr" for="sq-${i}">ปริมาณต่อหน่วย ${esc(r.name)}</label><input class="in in-sm in-num" id="sq-${i}" data-sim="qty" value="${r.qty}" type="number" step="any" min="0"><span class="u">${esc(r.unit)}</span></td>
     <td class="r t-price" data-l="ราคาต่อหน่วย (บาท)"><label class="sr" for="sp-${i}">ราคาต่อหน่วย ${esc(r.name)}</label><input class="in in-sm in-num" id="sp-${i}" data-sim="price" value="${r.price}" type="number" step="any" min="0"></td>
     <td class="r t-amt" data-l="ต้นทุน (บาท)"><span class="num" data-out="amt">${baht(r.amount)}</span></td><td class="t-del"><button type="button" class="btn-ico" data-act="simDel" aria-label="ลบแถว ${esc(r.name)}">${I.close}</button></td></tr>`;
@@ -160,8 +161,9 @@ export function viewProduct(p) {
       <p class="note">ยกเลิกผลิตแล้ว ระบบไม่เตือนให้ผลิตเพิ่ม และไม่ขึ้นให้เปิดงาน แต่ของในคลังยังขายได้จนหมด เปลี่ยนเลข 24 หลัก อายุยา หรือฉลาก แก้ในระบบโรงงานผ่านคำขอ FM-40</p></section>
     <section class="panel" aria-labelledby="ps-h"><div class="panel-h"><h2 id="ps-h">ขายและผลิต 12 เดือน</h2></div>
       <dl class="fields"><div><dt>ขาย</dt><dd>${esc(qty(code, sold.q))}</dd></div><div><dt>ยอดขาย</dt><dd>${num(sold.a)} บาท</dd></div><div><dt>คงคลังตรวจสอบแล้ว</dt><dd>${esc(qty(code, st?.released || 0))}</dd></div><div><dt>กำไรขั้นต้นต่อหน่วย</dt><dd>${baht((it.price || 0) - c.total)} บาท (${num(margin, 1)}%)</dd></div></dl>
-      <ul class="mini" style="margin-top:10px">${jobs.map((j) => `<li><span class="t"><span class="mono">${esc(j.job_id)}</span> ${esc(qty(code, j.qty))}<span class="d">${esc(thaiDate(j.created_date))} ${esc(j.out_lot || '')}</span></span>${chip(j.status === 'done' ? 'ตรวจสอบแล้ว' : j.status === 'qc' ? 'รอปล่อยผ่าน' : j.status === 'waiting' ? 'รอเริ่ม' : 'กำลังผลิต', j.status === 'done' ? 'ok' : 'ink')}</li>`).join('') || '<li class="empty">ยังไม่มีงานผลิต</li>'}</ul></section>
+      <ul class="mini" style="margin-top:10px">${jobs.map((j) => `<li><span class="t">${jobLink(j.job_id)} ${esc(qty(code, j.qty))}<span class="d">${esc(thaiDate(j.created_date))} ${esc(j.out_lot || '')}</span></span>${chip(j.status === 'done' ? 'ตรวจสอบแล้ว' : j.status === 'qc' ? 'รอปล่อยผ่าน' : j.status === 'waiting' ? 'รอเริ่ม' : 'กำลังผลิต', j.status === 'done' ? 'ok' : 'ink')}</li>`).join('') || '<li class="empty">ยังไม่มีงานผลิต</li>'}</ul></section>
   </div>
+  ${lotsPanel(code, p.get('lots') === 'all', `#/product?code=${code}&lots=all`)}
   <section class="panel sim" aria-labelledby="sf-h" data-code="${code}"><div class="panel-h"><h2 id="sf-h">สูตรต่อ 1 ${esc(it.unit)} ฉบับที่ ${vs.length} และต้นทุน</h2><span class="meta">แก้ตัวเลขในช่องเพื่อจำลองราคา ยังไม่บันทึกจนกว่าจะกดบันทึกเป็นสูตรฉบับใหม่</span></div>
     ${tableWrap(`<table class="sim-t stack-t"><thead><tr><th>วัตถุดิบและบรรจุภัณฑ์</th><th class="r">ปริมาณต่อหน่วย</th><th class="r">ราคาต่อหน่วย (บาท)</th><th class="r">ต้นทุน (บาท)</th><th><span class="sr">ลบแถว</span></th></tr></thead><tbody>${c.lines.map(lineRow).join('')}</tbody></table>`, 'สูตรและต้นทุน')}
     <div class="sim-add">${itemPicker({ name: 'add', items: mats, value: '', label: 'เพิ่มวัตถุดิบหรือบรรจุภัณฑ์', id: 'sim', required: false })}<button type="button" class="btn btn-sm" data-act="simAdd">${I.plus}เพิ่มแถว</button></div>
@@ -190,6 +192,7 @@ export function viewProduct(p) {
   </section>
   <section class="panel" aria-labelledby="fv-h"><div class="panel-h"><h2 id="fv-h">ประวัติสูตร</h2><span class="meta">${vs.length} ฉบับ</span></div>
     <ul class="mini">${vs.slice().reverse().map((v) => `<li><span class="t">ฉบับที่ ${v.v} ${v.rows.length} รายการ<span class="d">${v.at ? `${esc(new Date(v.at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))} ${esc(short(staff(v.user).name))}` : 'ตั้งต้น'} ${esc(v.reason)}${v.fm40 ? ` อ้าง ${esc(v.fm40)}` : ''}</span></span>${v.v === vs.length ? chip('ใช้อยู่', 'ok') : chip('ฉบับเก่า', 'exp')}</li>`).join('')}</ul></section>
+  ${movesPanel(code)}
   ${historyOf((e) => (e.type === 'master' && e.effects?.master?.[0]?.key === code) || (e.type === 'formula' && e.effects?.formula?.[0]?.item === code), 'ประวัติการแก้ผลิตภัณฑ์นี้')}`;
 }
 

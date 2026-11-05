@@ -1,19 +1,20 @@
 // หน้าเว็บหลัก: ห้องทำงานแยกฝ่ายตามสิทธิ์ หัวข้อยึดเอกสารของโรงงาน (ระเบียบ V8.9, SOP, FM)
-import { CONFIG, LANES, CAN, REQ_FORM, ROOMS, TOOLS, canEnter, homeRoom } from './config.js';
+import { CONFIG, LANES, CAN, REQ_FORM, ROOMS, TOOLS, STAGE_OWNER, canEnter, homeRoom } from './config.js';
 import {
   S, D, loadAll, commit, resetEvents, staff, currentUser, setUser, usable, isFG, round, nextLotNo, nextJobId, nextInvNo,
-  newMove, thaiDate, daysBetween, addDays, toCSV, roomAlerts, bomOf, active, producing, eventById, blockers, withoutEvent, unreadNotes,
+  newMove, thaiDate, daysBetween, addDays, toCSV, roomAlerts, bomOf, bomNeeds, active, producing, eventById, blockers, withoutEvent, unreadNotes,
 } from './data.js';
 import { fefoPick } from './logic.js';
 import {
   $, esc, num, qn, qty, qh, money, mill, short, I, svg, chip, lotChip, stamp, tableWrap, supName, custName, who, deptLegend,
-  toast, download, can, deny, roleNote, nav, setHash, slipState, showSlip, slipBlock, head, alertsBlock, seg, itemPicker, codeOf, monthLabel, actions,
+  toast, download, can, deny, roleNote, nav, setHash, slipState, showSlip, slipBlock, head, alertsBlock, seg, itemPicker, codeOf, monthLabel, actions, itemLink, jobLink, jobHref,
 } from './ui.js';
 import { viewBuy, buyHandlers, buildPR } from './buy.js';
 import { viewPlan } from './plan.js';
 import { viewRegisters, viewProduct, registerHandlers, onSimInput } from './registers.js';
 import { viewDocs } from './docs.js';
 import { viewNotes, notesHandlers, afterNotes } from './notes.js';
+import { viewItem, viewJob } from './detail.js';
 
 // ================= ภาพรวมโรงงาน =================
 export function monthSales() {
@@ -154,7 +155,7 @@ function kcard(c, canMove, target) {
   const late = c.stage === 'รอปล่อยผ่าน' && c.days > CONFIG.qcWaitWarnDays;
   return `<article class="kcard${c.blocked ? ' is-blocked' : ''}${target === c.job.job_id ? ' is-target' : ''}" data-job="${esc(c.job.job_id)}" ${canMove ? 'draggable="true"' : ''}>
     <div class="k-top"><span class="mono">${esc(c.job.job_id)}</span>${c.job.out_lot ? `<span class="mono">${esc(c.job.out_lot)}</span>` : ''}</div>
-    <h3 class="k-t">${esc(c.it.name)}</h3>
+    <h3 class="k-t"><a class="k-link" href="${jobHref(c.job.job_id)}" draggable="false">${esc(c.it.name)}</a></h3>
     <div class="k-q"><span>จำนวน</span><span>${qh(c.it.code, c.job.qty)}</span></div>
     ${c.blocked ? `<div class="k-block">หยุด รอ${esc(c.blocked)}</div>` : ''}
     <div class="k-act">${who(c.owner)}<span class="days${late ? ' warn' : ''}">${c.days} วัน</span></div>
@@ -186,13 +187,6 @@ function laneBoard(laneKey, p, allowMove = true) {
     }).join('')}</div></section>`;
 }
 
-export function bomNeeds(code, q) {
-  return bomOf(code).map((b) => {
-    const need = round(b.in_item, b.qty_per_unit * q);
-    const have = (S.lotsByItem.get(b.in_item) || []).filter(usable).reduce((s, l) => s + l.qty_left, 0);
-    return { code: b.in_item, need, have, ok: have + 1e-9 >= need };
-  });
-}
 
 function moveJob(jobId, dir) {
   const card = D.board.find((c) => c.job.job_id === jobId);
@@ -275,7 +269,7 @@ function jobForm(room, p) {
       ${itemPicker({ name: 'item', items, value: code, act: 'jobItem', label: `รายการที่จะ${lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป'}`, id: room.id })}
       <label class="f">จำนวน (${esc(it.unit)}) รุ่นละ ${esc(qty(code, it.batch_or_pack || 0))}<input class="in" name="qty" type="number" min="1" step="any" required value="${q}" data-act="jobQty"></label>
       <div class="form-note">พอใช้อีก ${Number.isFinite(st.cover) ? `${num(Math.floor(st.cover))} วัน` : 'ไม่มีการเบิก'} จำนวนอย่างต่ำ ${esc(qty(code, st.pol.rop))} แนะนำ ${st.suggestQty ? esc(qty(code, st.suggestQty)) : 'ยังไม่ถึงจุดที่ต้องเพิ่ม'} งานจะเริ่มที่ขั้น "${esc(first)}" <a href="#/product?code=${code}">ดูสูตรและต้นทุน</a>
-        ${tableWrap(`<table style="margin-top:8px"><thead><tr><th>วัตถุดิบตามสูตร</th><th class="r">ต้องใช้</th><th class="r">ตรวจสอบแล้วในคลัง</th><th>พอไหม</th></tr></thead><tbody>${needs.map((n) => `<tr><td>${esc(S.items.get(n.code).name)}</td><td class="r">${qh(n.code, n.need)}</td><td class="r">${qh(n.code, n.have)}</td><td>${n.ok ? chip('พอ', 'ok') : chip('ไม่พอ', 'crit')}</td></tr>`).join('')}</tbody></table>`, 'วัตถุดิบตามสูตร')}
+        ${tableWrap(`<table style="margin-top:8px"><thead><tr><th>วัตถุดิบตามสูตร</th><th class="r">ต้องใช้</th><th class="r">ตรวจสอบแล้วในคลัง</th><th>พอไหม</th></tr></thead><tbody>${needs.map((n) => `<tr><td>${itemLink(n.code)}</td><td class="r">${qh(n.code, n.need)}</td><td class="r">${qh(n.code, n.have)}</td><td>${n.ok ? chip('พอ', 'ok') : chip('ไม่พอ', 'crit')}</td></tr>`).join('')}</tbody></table>`, 'วัตถุดิบตามสูตร')}
       </div>
       <div class="form-actions"><button type="submit" class="btn btn-solid" ${can(key) ? '' : 'disabled'}>เปิดงาน</button></div>
     </form></section>`;
@@ -283,7 +277,7 @@ function jobForm(room, p) {
 
 function materialsCheck() {
   const jobs = S.jobs.filter((j) => j.lane === 'ผลิต' && j.status === 'waiting');
-  const rows = jobs.flatMap((j) => { const ns = bomNeeds(j.item_code, j.qty); return ns.map((n, i) => `<tr${n.ok ? '' : ' class="is-target"'}>${i === 0 ? `<td rowspan="${ns.length}"><span class="mono">${esc(j.job_id)}</span><span class="sub-l">${esc(S.items.get(j.item_code).name)} ${esc(qty(j.item_code, j.qty))}</span></td>` : ''}<td>${esc(S.items.get(n.code).name)}</td><td class="r">${qh(n.code, n.need)}</td><td class="r">${qh(n.code, n.have)}</td><td>${n.ok ? chip('พอ', 'ok') : chip('ไม่พอ', 'crit')}</td></tr>`); });
+  const rows = jobs.flatMap((j) => { const ns = bomNeeds(j.item_code, j.qty); return ns.map((n, i) => `<tr${n.ok ? '' : ' class="is-target"'}>${i === 0 ? `<td rowspan="${ns.length}">${jobLink(j.job_id)}<span class="sub-l">${itemLink(j.item_code)} ${esc(qty(j.item_code, j.qty))}</span></td>` : ''}<td>${itemLink(n.code)}</td><td class="r">${qh(n.code, n.need)}</td><td class="r">${qh(n.code, n.have)}</td><td>${n.ok ? chip('พอ', 'ok') : chip('ไม่พอ', 'crit')}</td></tr>`); });
   return `<section class="panel" aria-labelledby="mc-h"><div class="panel-h"><h2 id="mc-h">วัตถุดิบสำหรับงานที่รอเบิก</h2><span class="meta">${jobs.length} งาน เทียบสูตรกับของที่ตรวจสอบแล้วในคลัง</span></div>
     ${rows.length ? tableWrap(`<table><thead><tr><th>งาน</th><th>วัตถุดิบ</th><th class="r">ต้องใช้</th><th class="r">ตรวจสอบแล้ว</th><th>พอไหม</th></tr></thead><tbody>${rows.join('')}</tbody></table>`, 'วัตถุดิบสำหรับงานที่รอเบิก') : '<p class="empty">ไม่มีงานรอเบิก งานที่เปิดใหม่จะขึ้นที่นี่</p>'}</section>`;
 }
@@ -294,7 +288,7 @@ function farmReceipts() {
   const farms = new Map();
   for (const l of lots) { const k = l.source_ref; const x = farms.get(k) || { n: 0, kg: 0 }; x.n += 1; x.kg += l.qty_in; farms.set(k, x); }
   return `<div class="work"><section class="panel" aria-labelledby="fr-h"><div class="panel-h"><h2 id="fr-h">วัตถุดิบสดที่รับเข้า 60 วันล่าสุด</h2><span class="meta">ใบรับซื้อวัตถุดิบสมุนไพร FM-23 กดเลขที่เพื่อพิมพ์</span></div>
-    ${tableWrap(`<table><thead><tr><th>วันที่รับ</th><th>เลขที่รับ</th><th>สมุนไพร</th><th>เกษตรกร</th><th class="r">จำนวน</th><th>ป้าย</th></tr></thead><tbody>${lots.slice(0, 60).map((l) => `<tr><td class="nowrap">${esc(thaiDate(l.date_in))}</td><td class="code"><a href="#/doc?type=fm23&lot=${l.lot_no}">${esc(l.lot_no)}</a></td><td>${esc(S.items.get(l.item_code).name)}</td><td>${esc(supName(l.source_ref))}</td><td class="r">${qh(l.item_code, l.qty_in)}</td><td>${lotChip(l.status)}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">ไม่มีรายการ</td></tr>'}</tbody></table>`, 'วัตถุดิบสดที่รับเข้า')}</section>
+    ${tableWrap(`<table><thead><tr><th>วันที่รับ</th><th>เลขที่รับ</th><th>สมุนไพร</th><th>เกษตรกร</th><th class="r">จำนวน</th><th>ป้าย</th></tr></thead><tbody>${lots.slice(0, 60).map((l) => `<tr><td class="nowrap">${esc(thaiDate(l.date_in))}</td><td class="code"><a href="#/doc?type=fm23&lot=${l.lot_no}">${esc(l.lot_no)}</a></td><td>${itemLink(l.item_code)}</td><td>${esc(supName(l.source_ref))}</td><td class="r">${qh(l.item_code, l.qty_in)}</td><td>${lotChip(l.status)}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">ไม่มีรายการ</td></tr>'}</tbody></table>`, 'วัตถุดิบสดที่รับเข้า')}</section>
     <section class="panel" aria-labelledby="fm-h"><div class="panel-h"><h2 id="fm-h">ส่งของมาจากใคร</h2><span class="meta">60 วันล่าสุด</span></div>
     ${tableWrap(`<table><thead><tr><th>เกษตรกร</th><th class="r">ครั้ง</th><th class="r">รวม</th></tr></thead><tbody>${[...farms].sort((a, b) => b[1].kg - a[1].kg).map(([k, x]) => `<tr><td>${esc(supName(k))}</td><td class="r"><span class="num">${x.n}</span></td><td class="r"><span class="num">${num(x.kg)}</span><span class="u">กก.</span></td></tr>`).join('')}</tbody></table>`, 'เกษตรกรที่ส่งของ')}</section></div>`;
 }
@@ -334,7 +328,7 @@ function poStubs(limit = 5) {
 function expiringList(limit = 5) {
   const xs = D.expiries.slice(0, limit);
   return `<section class="side-list" aria-labelledby="ex-h"><div class="side-h"><h2 id="ex-h">ล็อตใกล้หมดอายุ</h2><span class="meta">ภายใน ${CONFIG.expiryWarnDays} วัน ${D.expiries.length} ล็อต</span></div>
-    ${xs.length ? `<ul class="mini">${xs.map((e) => `<li><span class="t">${esc(e.it.name)}<span class="d"><span class="mono">${esc(e.lot.lot_no)}</span> คงเหลือ ${esc(qty(e.it.code, e.lot.qty_left))}</span></span>${chip(e.daysLeft <= 0 ? 'หมดอายุแล้ว' : `${e.daysLeft} วัน`, e.level)}</li>`).join('')}</ul>` : '<p class="empty">ไม่มีล็อตใกล้หมดอายุ</p>'}</section>`;
+    ${xs.length ? `<ul class="mini">${xs.map((e) => `<li><span class="t">${itemLink(e.it)}<span class="d"><span class="mono">${esc(e.lot.lot_no)}</span> คงเหลือ ${esc(qty(e.it.code, e.lot.qty_left))}</span></span>${chip(e.daysLeft <= 0 ? 'หมดอายุแล้ว' : `${e.daysLeft} วัน`, e.level)}</li>`).join('')}</ul>` : '<p class="empty">ไม่มีล็อตใกล้หมดอายุ</p>'}</section>`;
 }
 
 const KINDS = ['ยารับประทาน', 'ยาใช้ภายนอก', 'แห้ง', 'ผง', 'บรรจุภัณฑ์', 'เคมีภัณฑ์', 'ฉลาก'];
@@ -358,7 +352,7 @@ function storeStock(p) {
       <form class="search" data-form="filter" role="search"><label class="sr" for="q">ค้นหารายการหรือรหัส</label><input class="in" id="q" name="q" value="${esc(qRaw)}" placeholder="ค้นชื่อหรือรหัส"><input type="hidden" name="kind" value="${esc(kind)}"><input type="hidden" name="lv" value="${esc(lv)}"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form>
       <button type="button" class="btn btn-sm" data-act="export">${I.download}ส่งออก CSV</button></div>
     ${tableWrap(`<table><thead><tr><th>รหัส</th><th>รายการ</th><th class="r">ตรวจสอบแล้ว</th><th class="r">ใช้ต่อวัน</th><th class="r">พอใช้</th><th class="r">จำนวนอย่างต่ำ</th><th class="r">ค้างรับ ค้างผลิต</th><th>สถานะ</th></tr></thead><tbody>
-    ${shown.map(({ s, stt }) => `<tr><td class="code">${s.it.code}</td><td><a href="#/store?tab=card&item=${s.it.code}">${esc(s.it.name)}</a>${s.quarantine ? `<span class="sub-l">รอปล่อยผ่าน ${esc(qty(s.it.code, s.quarantine))}</span>` : ''}</td>
+    ${shown.map(({ s, stt }) => `<tr><td class="code">${s.it.code}</td><td>${itemLink(s.it)}${s.quarantine ? `<span class="sub-l">รอปล่อยผ่าน ${esc(qty(s.it.code, s.quarantine))}</span>` : ''}</td>
       <td class="r">${qh(s.it.code, s.released)}</td><td class="r"><span class="num">${num(s.u.mean, 1)}</span></td><td class="r">${Number.isFinite(s.cover) ? `<span class="num">${num(Math.floor(s.cover))}</span><span class="u">วัน</span>` : '<span class="muted">-</span>'}</td>
       <td class="r"><span class="num">${num(s.pol.rop)}</span></td><td class="r">${s.onOrder ? `<span class="num">${num(s.onOrder)}</span>` : '<span class="muted">-</span>'}</td><td>${chip(stt.t, stt.lv)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">ไม่พบรายการตามที่กรอง ลองล้างตัวกรอง</td></tr>'}
     </tbody></table>`, 'คงคลังของฝ่าย')}
@@ -380,7 +374,7 @@ function stockCard(p) {
     <a class="btn btn-sm" href="#/doc?type=fm02&item=${code}">${I.print}พิมพ์ FM-02</a></div>
     <form class="form-grid" data-form="pick" data-to="store" data-tab="card" style="margin-bottom:12px">${itemPicker({ name: 'item', items, value: code, act: 'pickItem', label: 'รายการ', id: 'card' })}</form>
     <dl class="fields" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr));margin-bottom:14px">
-      <div><dt>ประเภท</dt><dd>${esc(it.kind)}</dd></div><div><dt>ชื่อหรือชนิดวัสดุ</dt><dd>${esc(it.name)}</dd></div><div><dt>รหัส</dt><dd class="num">${code}</dd></div><div><dt>หน่วยที่นับ</dt><dd>${esc(it.unit)}</dd></div>
+      <div><dt>ประเภท</dt><dd>${esc(it.kind)}</dd></div><div><dt>ชื่อหรือชนิดวัสดุ</dt><dd>${itemLink(it)}</dd></div><div><dt>รหัส</dt><dd class="num">${code}</dd></div><div><dt>หน่วยที่นับ</dt><dd>${esc(it.unit)}</dd></div>
       <div><dt>จำนวนอย่างสูง</dt><dd class="num">${num(st.pol.S)}</dd></div><div><dt>จำนวนอย่างต่ำ</dt><dd class="num">${num(st.pol.rop)}</dd></div><div><dt>ที่เก็บ</dt><dd>${where}</dd></div><div><dt>คงเหลือรวม</dt><dd>${esc(qty(code, st.released + st.quarantine + st.rejected))}</dd></div></dl>
     ${tableWrap(`<table><thead><tr><th>วัน เดือน ปี</th><th>รับจาก จ่ายให้</th><th>เลขที่เอกสาร</th><th>Lot No.</th><th>Exp.</th><th class="r">รับ</th><th class="r">จ่าย</th><th class="r">คงเหลือ</th><th>ผู้บันทึก</th></tr></thead><tbody>
     ${lines.map((x) => `<tr${x.m.move_id.startsWith('W') ? ' class="row-new"' : ''}><td class="nowrap">${esc(thaiDate(x.m.date))}${x.m.move_id.startsWith('W') ? ` ${chip('ใหม่', 'ink')}` : ''}</td><td>${esc(x.m.party)}</td><td>${esc(x.m.doc_no)}</td><td class="code">${esc(x.m.lot_no)}</td><td class="nowrap">${x.exp ? esc(thaiDate(x.exp)) : '-'}</td>
@@ -457,7 +451,7 @@ function qcQueue(p) {
   };
   return `<section class="panel" aria-labelledby="qq-h"><div class="panel-h"><h2 id="qq-h">คิวรอปล่อยผ่าน</h2><span class="meta">${D.qcQueue.length} ล็อต ผู้ใช้ตอนนี้: ${esc(whoNote)}</span></div>
   ${tableWrap(`<table class="stack-t qc-t"><thead><tr><th>ป้าย</th><th>เลขที่</th><th>รายการ</th><th class="r">จำนวน</th><th>รับหรือผลิตเสร็จ</th><th class="r">รอมาแล้ว</th><th>ผลตรวจ (เจ้าหน้าที่)</th><th>อนุมัติ (หัวหน้าฝ่าย)</th></tr></thead><tbody>
-  ${D.qcQueue.map((q) => `<tr${target === q.lot.lot_no ? ' class="is-target" data-target' : ''}><td>${lotChip('รอปล่อยผ่าน')}</td><td class="code">${esc(q.lot.lot_no)}</td><td class="t-name">${esc(q.it.name)}<span class="sub-l">${esc(q.lot.source)} ${esc(q.lot.source === 'รับซื้อ' ? supName(q.lot.source_ref) : q.lot.source_ref)}</span></td><td class="r" data-l="จำนวน">${qh(q.it.code, q.lot.qty_left)}</td><td class="nowrap" data-l="รับหรือผลิตเสร็จ">${esc(thaiDate(q.lot.date_in))}</td>
+  ${D.qcQueue.map((q) => `<tr${target === q.lot.lot_no ? ' class="is-target" data-target' : ''}><td>${lotChip('รอปล่อยผ่าน')}</td><td class="code">${esc(q.lot.lot_no)}</td><td class="t-name">${itemLink(q.it)}<span class="sub-l">${esc(q.lot.source)} ${q.lot.source === 'ผลิต' && q.lot.source_ref ? jobLink(q.lot.source_ref) : esc(q.lot.source === 'รับซื้อ' ? supName(q.lot.source_ref) : q.lot.source_ref)}</span></td><td class="r" data-l="จำนวน">${qh(q.it.code, q.lot.qty_left)}</td><td class="nowrap" data-l="รับหรือผลิตเสร็จ">${esc(thaiDate(q.lot.date_in))}</td>
   <td class="r" data-l="รอมาแล้ว"><span class="num"${q.waiting > CONFIG.qcWaitWarnDays ? ' style="color:var(--warn)"' : ''}>${q.waiting}</span><span class="u">วัน</span></td><td class="t-wide" data-l="ผลตรวจ (เจ้าหน้าที่)">${resultCell(q)}</td><td class="t-wide" data-l="อนุมัติ (หัวหน้าฝ่าย)">${decideCell(q)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">ไม่มีล็อตรอปล่อยผ่าน</td></tr>'}
   </tbody></table>`, 'คิวรอปล่อยผ่าน')}
   <p class="note">ป้ายแดง รอปล่อยผ่าน เปลี่ยนเป็นป้ายเขียว ตรวจสอบแล้ว หรือ ไม่ผ่าน ได้โดยหัวหน้าฝ่ายควบคุมคุณภาพเท่านั้น คนบันทึกผลกับคนอนุมัติเป็นคนละคน (SOP-QC-06, SOP-QC-07, ระเบียบ V8.9 ข้อ 89 และ 92)</p></section>`;
@@ -469,13 +463,13 @@ function qcReleased(p) {
   return `<section class="panel" aria-labelledby="qr-h"><div class="panel-h"><h2 id="qr-h">บันทึกการปล่อยผ่าน${kind === 'fg' ? 'ผลิตภัณฑ์สำเร็จรูป FM-35' : ''}</h2><a class="btn btn-sm" href="#/doc?type=fm35&month=${S.today.slice(0, 7)}">${I.print}พิมพ์ FM-35 เดือนนี้</a></div>
   <div class="filters">${fchip('fg', 'ยาสำเร็จรูป')}${fchip('raw', 'วัตถุดิบ')}${fchip('all', 'ทั้งหมด')}</div>
   ${tableWrap(`<table><thead><tr><th>ว/ด/ป</th><th>รายการ</th><th>Lot No.</th><th>ผลการตรวจ</th><th>ผู้ตรวจ</th><th>ผู้อนุมัติปล่อยผ่าน</th><th>หมายเหตุ</th></tr></thead><tbody>
-  ${rs.map((r) => `<tr><td class="nowrap">${esc(thaiDate(r.date))}</td><td>${esc(S.items.get(r.item_code).name)}</td><td class="code">${esc(r.lot_no)}</td><td>${r.result === 'ผ่าน' ? lotChip('ตรวจสอบแล้ว') : lotChip('ไม่ผ่าน')}</td><td>${esc(short(staff(r.checker_id).name))}</td><td>${esc(short(staff(r.approver_id).name))}</td><td>${esc(r.note)}</td></tr>`).join('')}
+  ${rs.map((r) => `<tr><td class="nowrap">${esc(thaiDate(r.date))}</td><td>${itemLink(r.item_code)}</td><td class="code">${esc(r.lot_no)}</td><td>${r.result === 'ผ่าน' ? lotChip('ตรวจสอบแล้ว') : lotChip('ไม่ผ่าน')}</td><td>${esc(short(staff(r.checker_id).name))}</td><td>${esc(short(staff(r.approver_id).name))}</td><td>${esc(r.note)}</td></tr>`).join('')}
   </tbody></table>`, 'บันทึกการปล่อยผ่าน')}</section>`;
 }
 function qcRejected() {
   const lots = S.lots.filter((l) => l.status === 'ไม่ผ่าน').sort((a, b) => (b.release_date || '').localeCompare(a.release_date || '')).slice(0, 30);
   return `<section class="panel" aria-labelledby="rj-h"><div class="panel-h"><h2 id="rj-h">ล็อตไม่ผ่าน แยกเก็บ รอส่งคืนหรือทำลาย</h2><span class="meta">SOP-QC-12</span></div>
-  ${lots.length ? tableWrap(`<table><thead><tr><th>Lot No.</th><th>รายการ</th><th class="r">คงเหลือ</th><th>วันที่ตัดสิน</th><th>ที่มา</th><th>ป้าย</th></tr></thead><tbody>${lots.map((l) => `<tr><td class="code">${esc(l.lot_no)}</td><td>${esc(S.items.get(l.item_code).name)}</td><td class="r">${qh(l.item_code, l.qty_left)}</td><td class="nowrap">${esc(thaiDate(l.release_date))}</td><td>${esc(l.source)}</td><td>${lotChip('ไม่ผ่าน')}</td></tr>`).join('')}</tbody></table>`, 'ล็อตไม่ผ่าน') : '<p class="empty">ยังไม่มีล็อตไม่ผ่าน</p>'}</section>`;
+  ${lots.length ? tableWrap(`<table><thead><tr><th>Lot No.</th><th>รายการ</th><th class="r">คงเหลือ</th><th>วันที่ตัดสิน</th><th>ที่มา</th><th>ป้าย</th></tr></thead><tbody>${lots.map((l) => `<tr><td class="code">${esc(l.lot_no)}</td><td>${itemLink(l.item_code)}</td><td class="r">${qh(l.item_code, l.qty_left)}</td><td class="nowrap">${esc(thaiDate(l.release_date))}</td><td>${esc(l.source)}</td><td>${lotChip('ไม่ผ่าน')}</td></tr>`).join('')}</tbody></table>`, 'ล็อตไม่ผ่าน') : '<p class="empty">ยังไม่มีล็อตไม่ผ่าน</p>'}</section>`;
 }
 
 function releaseLot(lotNo, result, reason) {
@@ -542,7 +536,7 @@ function salesTab(ms, p) {
   return `<div class="work"><section class="panel" aria-labelledby="ms-h"><div class="panel-h"><h2 id="ms-h">ยอดขายรายเดือน</h2><span class="meta">12 เดือนล่าสุด</span></div>${salesBars(ms)}</section>
   <section class="panel" aria-labelledby="bp-h"><div class="panel-h"><h2 id="bp-h">ขายอะไร 12 เดือน</h2><span class="meta">${by.size} ผลิตภัณฑ์ รวม ${mill(total)} ล้านบาท</span></div>
   <form class="search" data-form="salesSearch" role="search" style="margin:0 0 10px"><label class="sr" for="sq">ค้นผลิตภัณฑ์</label><input class="in" id="sq" name="q" value="${esc(p.get('q') || '')}" placeholder="ค้นชื่อหรือรหัส"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form>
-  ${tableWrap(`<table><thead><tr><th>ผลิตภัณฑ์</th><th class="r">จำนวน</th><th class="r">ยอดขาย (บาท)</th><th class="r">สัดส่วน</th></tr></thead><tbody>${rows.slice(0, 40).map(([code, x]) => `<tr><td><a href="#/product?code=${code}">${esc(S.items.get(code).name)}</a></td><td class="r">${qh(code, x.q)}</td><td class="r"><span class="num">${num(x.amt)}</span></td><td class="r"><span class="num">${num((x.amt / Math.max(1, total)) * 100, 1)}%</span></td></tr>`).join('')}</tbody></table>`, 'ยอดขายรายผลิตภัณฑ์')}
+  ${tableWrap(`<table><thead><tr><th>ผลิตภัณฑ์</th><th class="r">จำนวน</th><th class="r">ยอดขาย (บาท)</th><th class="r">สัดส่วน</th></tr></thead><tbody>${rows.slice(0, 40).map(([code, x]) => `<tr><td>${itemLink(code)}</td><td class="r">${qh(code, x.q)}</td><td class="r"><span class="num">${num(x.amt)}</span></td><td class="r"><span class="num">${num((x.amt / Math.max(1, total)) * 100, 1)}%</span></td></tr>`).join('')}</tbody></table>`, 'ยอดขายรายผลิตภัณฑ์')}
   ${rows.length > 40 ? `<p class="note">แสดง 40 อันดับแรกจาก ${rows.length} ใช้ช่องค้นเพื่อหารายการอื่น</p>` : ''}</section></div>`;
 }
 function fgStock(p) {
@@ -550,7 +544,7 @@ function fgStock(p) {
   const lots = S.lots.filter((l) => usable(l) && isFG(S.items.get(l.item_code)) && (!q || S.items.get(l.item_code).name.toLowerCase().includes(q) || l.lot_no.includes(q))).sort((a, b) => a.item_code.localeCompare(b.item_code) || (a.exp_date || '').localeCompare(b.exp_date || ''));
   return `<section class="panel" aria-labelledby="fg-h"><div class="panel-h"><h2 id="fg-h">ยาสำเร็จรูปพร้อมขาย</h2><span class="meta">${lots.length} ล็อตที่ตรวจสอบแล้ว เรียงหมดอายุก่อนในแต่ละรายการ</span></div>
   <form class="search" data-form="fgSearch" role="search" style="margin:0 0 10px"><label class="sr" for="fq">ค้นยาพร้อมขาย</label><input class="in" id="fq" name="q" value="${esc(p.get('q') || '')}" placeholder="ค้นชื่อยาหรือเลขที่ผลิต"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form>
-  ${tableWrap(`<table><thead><tr><th>ผลิตภัณฑ์</th><th>Lot No.</th><th class="r">คงเหลือ</th><th>หมดอายุ</th><th>ขายก่อน</th></tr></thead><tbody>${lots.slice(0, 80).map((l) => { const d = daysBetween(S.today, l.exp_date); return `<tr><td>${esc(S.items.get(l.item_code).name)}</td><td class="code">${esc(l.lot_no)}</td><td class="r">${qh(l.item_code, l.qty_left)}</td><td class="nowrap">${esc(thaiDate(l.exp_date))}</td><td>${d <= CONFIG.expiryWarnDays ? chip(`เหลือ ${d} วัน`, d <= CONFIG.expiryCritDays ? 'crit' : 'warn') : '<span class="muted">-</span>'}</td></tr>`; }).join('')}</tbody></table>`, 'ยาสำเร็จรูปพร้อมขาย')}
+  ${tableWrap(`<table><thead><tr><th>ผลิตภัณฑ์</th><th>Lot No.</th><th class="r">คงเหลือ</th><th>หมดอายุ</th><th>ขายก่อน</th></tr></thead><tbody>${lots.slice(0, 80).map((l) => { const d = daysBetween(S.today, l.exp_date); return `<tr><td>${itemLink(l.item_code)}</td><td class="code">${esc(l.lot_no)}</td><td class="r">${qh(l.item_code, l.qty_left)}</td><td class="nowrap">${esc(thaiDate(l.exp_date))}</td><td>${d <= CONFIG.expiryWarnDays ? chip(`เหลือ ${d} วัน`, d <= CONFIG.expiryCritDays ? 'crit' : 'warn') : '<span class="muted">-</span>'}</td></tr>`; }).join('')}</tbody></table>`, 'ยาสำเร็จรูปพร้อมขาย')}
   ${lots.length > 80 ? '<p class="note">แสดง 80 ล็อตแรก ใช้ช่องค้นเพื่อหารายการอื่น</p>' : ''}</section>`;
 }
 
@@ -562,7 +556,7 @@ function traceTree(lotNo, depth = 0) {
   const job = S.jobs.find((j) => j.out_lot === lotNo);
   const src = lot.source === 'ใบสั่งซื้อ' ? `ซื้อตาม ${lot.source_ref}` : lot.source === 'รับซื้อ' ? `รับซื้อจาก ${supName(lot.source_ref)}` : lot.source === 'ผลิต' ? `ผลิตตามงาน ${lot.source_ref}` : lot.source;
   const kids = job && depth < 3 ? S.jobInputs.filter((x) => x.job_id === job.job_id) : [];
-  return `<li><span class="mono">${esc(lotNo)}</span> ${esc(it.name)} ${lotChip(lot.status)} <span class="muted">${esc(src)} ${esc(thaiDate(lot.date_in))}</span>${kids.length ? `<ul>${kids.map((k) => `<li>ใช้ ${esc(qty(k.item_code, k.qty))}<ul>${traceTree(k.lot_no, depth + 1)}</ul></li>`).join('')}</ul>` : ''}</li>`;
+  return `<li><span class="mono">${esc(lotNo)}</span> ${itemLink(it)} ${lotChip(lot.status)} <span class="muted">${esc(src)} ${esc(thaiDate(lot.date_in))}</span>${kids.length ? `<ul>${kids.map((k) => `<li>ใช้ ${esc(qty(k.item_code, k.qty))}<ul>${traceTree(k.lot_no, depth + 1)}</ul></li>`).join('')}</ul>` : ''}</li>`;
 }
 function forward(lotNo, depth = 0, acc = new Map()) {
   for (const l of S.invoiceLines.filter((x) => x.lot_no === lotNo)) {
@@ -881,8 +875,19 @@ function viewLocked(room) {
 }
 
 // ================= เส้นทางหน้า =================
-const VIEWS = { overview: viewOverview, store: viewStore, process: viewLaneRoom, prod: viewLaneRoom, qc: viewQC, sales: viewSales, notes: viewNotes, docs: viewDocs, doc: viewDocs, registers: viewRegisters, product: viewProduct, trace: viewTrace, log: viewLog };
-const TITLES = { product: 'ข้อมูลผลิตภัณฑ์', doc: 'เอกสาร' };
+// หน้ารายละเอียดงาน: เห็นได้เมื่อเข้าห้องของฝ่ายนั้นได้ เป็นผู้ถืองานในขั้นใดขั้นหนึ่ง หรือเป็นฝ่ายควบคุมคุณภาพที่ต้องตรวจบันทึกการผลิตก่อนปล่อยผ่าน
+function viewJobGuarded(p) {
+  const job = S.jobs.find((j) => j.job_id === p.get('id'));
+  if (!job) return viewJob(p);
+  const room = ROOMS.find((r) => r.id === (job.lane === 'ผลิต' ? 'prod' : 'process'));
+  const role = currentUser().role;
+  const owners = LANES[job.lane].stages.map((st) => staff(STAGE_OWNER[st]).role);
+  const ok = ['overview', 'qc'].some((id) => canEnter(ROOMS.find((r) => r.id === id), role)) || canEnter(room, role) || owners.includes(role);
+  return ok ? viewJob(p) : viewLocked(room);
+}
+const viewItemOrProduct = (p) => (isFG(S.items.get(p.get('code'))) ? viewProduct(p) : viewItem(p));
+const VIEWS = { item: viewItemOrProduct, job: viewJobGuarded, overview: viewOverview, store: viewStore, process: viewLaneRoom, prod: viewLaneRoom, qc: viewQC, sales: viewSales, notes: viewNotes, docs: viewDocs, doc: viewDocs, registers: viewRegisters, product: viewProduct, trace: viewTrace, log: viewLog };
+const TITLES = { product: 'ข้อมูลผลิตภัณฑ์', doc: 'เอกสาร', item: 'รายละเอียดรายการ', job: 'รายละเอียดงาน' };
 let lastId = '';
 function parseHash() {
   const m = location.hash.match(/^#\/([^?]*)\??(.*)$/);
