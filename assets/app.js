@@ -9,7 +9,7 @@ import { fefoPick } from './logic.js';
 import {
   $, esc, num, qn, qty, qh, money, baht, mill, short, I, svg, chip, lotChip, stamp, tableWrap, supName, custName, who, deptLegend,
   toast, download, can, deny, roleNote, nav, setHash, slipState, showSlip, slipBlock, head, alertsBlock, seg, itemPicker, codeOf, monthLabel, actions, itemLink, jobLink, jobHref,
-  openDialog, closeDialog, storeBanner, backBar, roleAbbr,
+  openDialog, closeDialog, storeBanner, backBar, roleAbbr, formCtx,
 } from './ui.js';
 import { viewBuy, buyHandlers, buildPR, viewInspect, inspectQueue } from './buy.js';
 import { viewPlan } from './plan.js';
@@ -112,10 +112,12 @@ function flowMap() {
   const feed = `<rect class="st-card${supply ? ' st-crit' : ''}" x="730" y="300" width="${W}" height="50" rx="5"/><text class="st-name" x="742" y="321">ผู้ขาย</text><text class="st-u" x="742" y="340">${vendors} ราย</text>
     <path class="${supply ? 'leg-crit' : 'feed'}" d="M800 298V${190 + H + 10}" marker-end="url(#${supply ? 'mc' : 'mh'})"/>
     ${supply ? `<text class="st-tag" x="720" y="318" text-anchor="end">${esc(supply.stub.ref)} คาดถึง ${esc(supply.fields[3][1])}</text><text class="st-tag" x="720" y="336" text-anchor="end">หลังวันที่ของหมด ${esc(supply.fields[2][1])}</text>` : ''}`;
-  const list = st.map((s) => `<li class="${s.lv === 'crit' ? 'is-crit' : ''}"><span><span class="t">${esc(s.name)}</span>${s.tag ? `<span class="d">${esc(s.tag)}</span>` : ''}</span><span><span class="num">${s.n.toLocaleString('th-TH')}</span> ${esc(s.u)}</span></li>`).join('');
+  const vendorRow = { id: 'vendor', name: 'ผู้ขาย', n: vendors, u: 'ราย', lv: supply ? 'crit' : '', tag: supply ? `${supply.stub.ref} คาดถึง ${supply.fields[3][1]} หลังวันที่ของหมด ${supply.fields[2][1]}` : '' };
+  const rows = st.flatMap((s) => (s.id === 'store' ? [vendorRow, s] : s.id === 'prod' && tube ? [{ ...s, extra: `หยุด รอ${tube.blocked}` }] : [s]));
+  const list = rows.map((s) => `<li${s.lv ? ` class="is-${s.lv}"` : ''}><span><span class="t">${esc(s.name)}</span>${s.tag ? `<span class="d">${esc(s.tag)}</span>` : ''}${s.extra ? `<span class="d">${esc(s.extra)}</span>` : ''}</span><span><span class="num">${s.n.toLocaleString('th-TH')}</span> ${esc(s.u)}</span></li>`).join('');
   return `<div class="map"><svg viewBox="0 0 880 360" role="img" aria-label="ผังสายการผลิต จากเกษตรกรถึงลูกค้า ${tube ? `งานผลิตหยุดรอ${esc(tube.blocked)}` : 'ไม่มีงานหยุด'}">
-    <defs><marker id="mh" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="leg-head" d="M0 0L8 4L0 8Z"/></marker>
-    <marker id="mc" viewBox="0 0 8 8" refX="6" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path class="leg-crit-head" d="M0 0L8 4L0 8Z"/></marker></defs>
+    <defs><marker id="mh" viewBox="0 0 8 8" refX="6" refY="4" markerUnits="userSpaceOnUse" markerWidth="16" markerHeight="16" orient="auto"><path class="leg-head" d="M0 0L8 4L0 8Z"/></marker>
+    <marker id="mc" viewBox="0 0 8 8" refX="6" refY="4" markerUnits="userSpaceOnUse" markerWidth="16" markerHeight="16" orient="auto"><path class="leg-crit-head" d="M0 0L8 4L0 8Z"/></marker></defs>
     ${legs}${st.map(card).join('')}${gate}${feed}</svg>
     <ol class="map-list">${list}</ol></div>`;
 }
@@ -137,7 +139,7 @@ function viewOverview(p) {
     return `<tr><td><a href="#/${r.id}">${esc(r.title)}</a></td><td class="r"><span class="num"${c ? ' style="color:var(--crit)"' : ''}>${c}</span></td><td class="r"><span class="num">${w}</span></td><td>${a[0] ? esc(a[0].title) : '<span class="muted">ไม่มี</span>'}</td></tr>`;
   }).join('');
   return head('ภาพรวมโรงงาน', alerts) + alertsBlock(alerts, 'ไม่มีเรื่องต้องตามวันนี้') + `
-  <div class="work">
+  <div class="work ov-top">
     <section class="panel" aria-labelledby="map-h"><div class="panel-h"><h2 id="map-h">สายการผลิต วัตถุดิบถึงลูกค้า</h2><span class="meta">งานในสาย ${num(active1.length)} งาน (แปรรูป ${active1.filter((j) => j.lane === 'แปรรูป').length} ผลิต ${active1.filter((j) => j.lane === 'ผลิต').length}) รอปล่อยผ่าน ${num(D.qcQueue.length)} ล็อต${qcLate ? ` เกิน ${CONFIG.qcWaitWarnDays} วัน ${qcLate} ล็อต` : ''}</span></div>${flowMap()}<p class="panel-foot">ตั๋วซ้อนหนา = งานหรือล็อตมาก ข้อมูล ณ ${esc(thaiDate(S.today))}</p></section>
     <section class="panel" aria-labelledby="rs-h"><div class="panel-h"><h2 id="rs-h">แจ้งเตือนแยกตามฝ่าย</h2><span class="meta">ของถึงจุดสั่งซื้อ ${num(inv.length)} รายการ${invCrit ? ` วิกฤต ${invCrit}` : ''}</span></div>
       ${tableWrap(`<table class="roomsum"><thead><tr><th>ห้องทำงาน</th><th class="r">วิกฤต</th><th class="r">เฝ้าระวัง</th><th>เรื่องแรก</th></tr></thead><tbody>${roomRows}</tbody></table>`, 'แจ้งเตือนแยกตามฝ่าย')}
@@ -194,6 +196,7 @@ function laneBoard(laneKey, p, allowMove = true) {
       <a class="fchip" href="${link({ only: 'stuck' })}" ${only === 'stuck' ? 'aria-current="true"' : ''}>ติดขัดหรือรอนาน <span class="num">${all.filter(stuck).length}</span></a>
       <form class="search" data-form="boardSearch" data-here="${esc(here)}" role="search"><label class="sr" for="bq-${laneKey}">ค้นงานบนบอร์ด${esc(L.title)}</label><input class="in" id="bq-${laneKey}" name="q" value="${esc(p.get('q') || '')}" placeholder="ค้นชื่อยา เลขงาน เลขที่ผลิต"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form>
       ${deptLegend()}</div>
+    ${q && !cards.length ? `<p class="empty">ไม่พบงานที่ตรงกับ "${esc(p.get('q') || '')}" <a href="${link({ q: '' })}">ล้างคำค้น</a></p>` : ''}
     <div class="kanban">${L.stages.map((st) => {
       const cs = cards.filter((c) => c.stage === st);
       return `<section class="kcol${cs.length ? '' : ' is-empty'}" data-drop="${esc(st)}" data-lane="${esc(laneKey)}" aria-label="${esc(st)} ${cs.length} งาน"><div class="kcol-h"><strong>${esc(st)}</strong><span class="num">${cs.length}</span></div><div class="kcol-s">${esc(L.sop[st])}</div><div class="kcol-b">${cs.map((c) => kcard(c, canMove, target)).join('') || '<div class="k-empty">ไม่มีงาน</div>'}</div></section>`;
@@ -321,7 +324,7 @@ function viewLaneRoom(p, room) {
   else if (tab === 'inspect' && lane === 'ผลิต') body = viewInspect();
   else if (tab === 'plan') body = viewPlan(p, lane, room.id);
   else body = laneBoard(lane, p);
-  return head(`ห้องทำงาน${L.title}`, alerts, acts) + slipBlock(room.id) + alertsBlock(alerts, '', { fold: tab === 'new' || tab === 'inspect' }) + seg(room.id, tabs, tab) + body;
+  return head(`ห้องทำงาน${L.title}`, alerts, acts) + slipBlock(room.id) + alertsBlock(alerts, '', { fold: tab !== 'board' }) + seg(room.id, tabs, tab) + body;
 }
 
 function jobForm(room, p) {
@@ -388,9 +391,8 @@ function viewStore(p) {
   else if (tab === 'buy') body = viewBuy(p);
   else if (tab === 'plan') body = viewPlan(p, 'store', 'store');
   else body = storeStock(p);
-  // แท็บที่เป็นฟอร์ม: พับการ์ดเตือนไว้ ให้ฟอร์มขึ้นก่อน (QA-026 มือถือต้องเลื่อนผ่านการ์ดเตือนก่อนถึงฟอร์ม)
-  const formTab = tab === 'receive' || tab === 'issue' || (tab === 'buy' && !!p.get('new'));
-  return head('ห้องทำงานฝ่ายจัดซื้อและคลัง', alerts, acts) + slipBlock('store') + alertsBlock(alerts, '', { fold: formTab }) + seg('store', tabs, tab) + body;
+  // แท็บอื่นนอกจากคงคลัง: พับการ์ดเตือนไว้ ให้งานของแท็บขึ้นก่อน (QA-026 ตรวจความเรียบร้อย ข้อ 10)
+  return head('ห้องทำงานฝ่ายจัดซื้อและคลัง', alerts, acts) + slipBlock('store') + alertsBlock(alerts, '', { fold: tab !== 'stock' }) + seg('store', tabs, tab) + body;
 }
 
 function poStubs(limit = 5) {
@@ -537,7 +539,7 @@ function viewQC(p) {
   if (tab === 'released') body = qcReleased(p);
   else if (tab === 'rejected') body = qcRejected();
   else body = qcQueue(p);
-  return head('ห้องทำงานฝ่ายควบคุมคุณภาพ', alerts) + slipBlock('qc') + alertsBlock(alerts) + seg('qc', tabs, tab) + body;
+  return head('ห้องทำงานฝ่ายควบคุมคุณภาพ', alerts) + slipBlock('qc') + alertsBlock(alerts, '', { fold: tab !== 'queue' }) + seg('qc', tabs, tab) + body;
 }
 function qcQueue(p) {
   const target = p.get('lot');
@@ -637,7 +639,7 @@ function viewSales(p) {
     { k: 'ยอดขาย 12 เดือน', n: mill(ms.reduce((s, x) => s + x.total, 0)), u: 'ล้านบาท', d: `เดือนนี้ถึงวันนี้ ${mill(ms[ms.length - 1].total)} ล้าน` },
     { k: 'ลูกหนี้ค้างชำระ', n: mill(ar.total), u: 'ล้านบาท', d: `${S.invoices.filter((v) => !v.paid_date && v.date <= S.today).length} ใบ` },
     { k: 'เกินกำหนดชำระ', n: mill(ar.overdue), u: 'ล้านบาท', lv: ar.overdue ? 'crit' : '', d: `${D.overdue.length} ราย` },
-  ]) + alertsBlock(alerts) + seg('sales', tabs, tab) + body;
+  ]) + alertsBlock(alerts, '', { fold: tab !== 'ar' }) + seg('sales', tabs, tab) + body;
 }
 function arTab(p, ar) {
   const cust = p.get('cust') || '';
@@ -675,11 +677,11 @@ function salesTab(ms, p) {
   for (const l of S.invoiceLines) { if (!inv.has(l.inv_no)) continue; const x = by.get(l.item_code) || { q: 0, amt: 0 }; x.q += l.qty; x.amt += l.amount; by.set(l.item_code, x); }
   const rows = [...by].filter(([code]) => !q || S.items.get(code).name.toLowerCase().includes(q) || code.includes(q)).sort((a, b) => b[1].amt - a[1].amt);
   const total = [...by.values()].reduce((t, x) => t + x.amt, 0);
-  return `<div class="work"><section class="panel" aria-labelledby="ms-h"><div class="panel-h"><h2 id="ms-h">ยอดขายรายเดือน</h2><span class="meta">12 เดือนล่าสุด</span></div>${salesBars(ms)}</section>
-  <section class="panel" aria-labelledby="bp-h"><div class="panel-h"><h2 id="bp-h">ขายอะไร 12 เดือน</h2><span class="meta">${by.size} ผลิตภัณฑ์ รวม ${mill(total)} ล้านบาท</span></div>
+  const chartPanel = `<section class="panel" aria-labelledby="ms-h"><div class="panel-h"><h2 id="ms-h">ยอดขายรายเดือน</h2><span class="meta">12 เดือนล่าสุด</span></div>${salesBars(ms)}</section>`;
+  return `<div class="work"><section class="panel" aria-labelledby="bp-h"><div class="panel-h"><h2 id="bp-h">ขายอะไร 12 เดือน</h2><span class="meta">${by.size} ผลิตภัณฑ์ รวม ${mill(total)} ล้านบาท</span></div>
   <form class="search" data-form="salesSearch" role="search" style="margin:0 0 10px"><label class="sr" for="sq">ค้นผลิตภัณฑ์</label><input class="in" id="sq" name="q" value="${esc(p.get('q') || '')}" placeholder="ค้นชื่อหรือรหัส"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form>
   ${tableWrap(`<table><thead><tr><th>ผลิตภัณฑ์</th><th class="r">จำนวน</th><th class="r">ยอดขาย (บาท)</th><th class="r">สัดส่วน</th></tr></thead><tbody>${rows.slice(0, 40).map(([code, x]) => `<tr><td>${itemLink(code)}</td><td class="r">${qh(code, x.q)}</td><td class="r"><span class="num">${num(x.amt)}</span></td><td class="r"><span class="num">${num((x.amt / Math.max(1, total)) * 100, 1)}%</span></td></tr>`).join('')}</tbody></table>`, 'ยอดขายรายผลิตภัณฑ์')}
-  ${rows.length > 40 ? `<p class="note">แสดง 40 อันดับแรกจาก ${rows.length} ใช้ช่องค้นเพื่อหารายการอื่น</p>` : ''}</section></div>`;
+  ${rows.length > 40 ? `<p class="note">แสดง 40 อันดับแรกจาก ${rows.length} ใช้ช่องค้นเพื่อหารายการอื่น</p>` : ''}</section>${chartPanel}</div>`;
 }
 function fgStock(p) {
   const q = (p.get('q') || '').trim().toLowerCase();
@@ -1153,10 +1155,46 @@ function renderChrome(id) {
     const n = ok ? roomAlerts(r.id).filter((a) => a.level === 'crit').length : 0;
     return `<a class="tab${ok ? '' : ' is-locked'}" href="#/${r.id}" ${r.id === tabId ? 'aria-current="page"' : ''}>${ok ? '' : I.lock}${esc(r.title)}${ok ? '' : '<span class="sr"> (ไม่มีสิทธิ์เข้า)</span>'}${n ? `<span class="count" title="วิกฤต ${n} เรื่อง"><span class="sr">วิกฤต </span>${n}<span class="sr"> เรื่อง</span></span>` : ''}</a>`;
   }).join('') + '<span class="tab-sep" aria-hidden="true"></span>'
-    + TOOLS.map((t) => `<a class="tab tab-tool" href="#/${t.id}" ${t.id === tabId ? 'aria-current="page"' : ''}>${I[t.id] || ''}${esc(t.title)}${t.id === 'notes' && unread ? `<span class="count count-ink" title="ยังไม่ได้อ่าน ${unread} ฉบับ"><span class="sr">ยังไม่ได้อ่าน </span>${unread}</span>` : ''}</a>`).join('');
+    + TOOLS.map((t) => `<a class="tab tab-tool" href="#/${t.id}" ${t.id === tabId ? 'aria-current="page"' : ''}>${I[t.id] || ''}<span class="tt-full">${esc(t.title)}</span><span class="tt-short" aria-hidden="true">${esc(t.short || t.title)}</span>${t.id === 'notes' && unread ? `<span class="count count-ink" title="ยังไม่ได้อ่าน ${unread} ฉบับ"><span class="sr">ยังไม่ได้อ่าน </span>${unread}</span>` : ''}</a>`).join('');
   renderUserOptions();
-  $('#tabs [aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  $('#tabs [aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  updTabs();
 }
+// แถบห้องทำงานบนจอแคบเลื่อนข้างได้: มีลูกศรและขอบจางบอกว่ายังมีห้องหรือเครื่องมือต่อ (ตรวจความเรียบร้อย ข้อ 13)
+let updTabs = () => {};
+function tabsScroller() {
+  const navEl = $('#tabs'), bar = $('.bar');
+  const smooth = () => (matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth');
+  const mk = (dir) => {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = `tabs-arrow ${dir < 0 ? 'is-prev' : 'is-next'}`; b.tabIndex = -1; b.hidden = true;
+    b.setAttribute('aria-hidden', 'true');
+    b.innerHTML = dir < 0 ? I.left : I.right;
+    b.addEventListener('click', () => navEl.scrollBy({ left: dir * Math.max(160, navEl.clientWidth * 0.6), behavior: smooth() }));
+    bar.appendChild(b);
+    return b;
+  };
+  const prev = mk(-1), next = mk(1);
+  updTabs = () => { const max = navEl.scrollWidth - navEl.clientWidth; prev.hidden = navEl.scrollLeft <= 2; next.hidden = max <= 2 || navEl.scrollLeft >= max - 2; };
+  navEl.addEventListener('scroll', updTabs, { passive: true });
+  addEventListener('resize', updTabs);
+}
+// ตัวเลขกับหน่วยไม่แยกบรรทัด เช่น 30 ก. 20 ซอง 15 วัน (ข้อ 17) ไม่แตะช่องกรอกและตัวเลือก
+const UNIT_RE = /(\d) (?=(?:กก\.|ก\.|มก\.|มล\.|ล\.|ซม\.|ซอง|แคปซูล|เม็ด|ขวด|หลอด|กล่อง|ถุง|ชิ้น|ดวง|แผ่น|วัน|บาท|ล้าน|ล็อต|งาน|ราย|ใบ|เรื่อง|ครั้ง|เดือน|ปี|%))/g;
+function nbspUnits(root) {
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement?.closest('textarea, option, select, script, style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+  for (let n = w.nextNode(); n; n = w.nextNode()) { const t = n.nodeValue; if (/\d /.test(t)) { const v = t.replace(UNIT_RE, '$1 '); if (v !== t) n.nodeValue = v; } }
+}
+// แท็บย่อยที่เลือกอยู่ เลื่อนเข้ามาในจอเสมอ (ข้อ 14)
+function fitSegs(root) {
+  for (const s of root.querySelectorAll('.seg')) {
+    const a = s.querySelector('[aria-current="page"]');
+    if (a && s.scrollWidth > s.clientWidth) s.scrollLeft += a.getBoundingClientRect().left - s.getBoundingClientRect().left - (s.clientWidth - a.offsetWidth) / 2;
+  }
+}
+// ตัวหนังสือในกราฟคงขนาดบนจอ ไม่ย่อหรือขยายตามความกว้างกราฟ (ข้อ 18 และ 30)
+const fitRO = 'ResizeObserver' in window ? new ResizeObserver((es) => { for (const e of es) { const vb = e.target.viewBox?.baseVal; if (vb && vb.width && e.contentRect.width) e.target.style.setProperty('--k', (vb.width / e.contentRect.width).toFixed(3)); } }) : null;
+function fitCharts(root) { if (!fitRO) return; fitRO.disconnect(); for (const g of root.querySelectorAll('.bars svg, .fc-chart svg')) fitRO.observe(g); }
 // ช่องเลือกผู้ใช้: จอมือถือใช้ตัวย่อตำแหน่ง (จนท.คลัง หน.QC) ชื่อตำแหน่งเต็มยาวจนถูกตัด
 const narrowMQ = matchMedia('(max-width: 760px)');
 function renderUserOptions() {
@@ -1249,6 +1287,8 @@ function route() {
   const view = room && !canEnter(room, user.role) ? viewLocked(room) : VIEWS[id](params, room);
   main.innerHTML = storeBanner() + (id === 'doc' ? '' : backBar()) + view;
   labelStackTables(main);
+  nbspUnits(main);
+  fitCharts(main);
   navTitle(main);
   if (slipState.slip) slipState.slip.shown = true;
   const title = room ? room.title : TITLES[id] || TOOLS.find((t) => t.id === id)?.title || '';
@@ -1257,6 +1297,9 @@ function route() {
   const target = main.querySelector('[data-target], .kcard.is-target');
   if (target) target.scrollIntoView({ block: 'center', inline: 'center' });
   else if (id !== lastId) window.scrollTo(0, 0);
+  fitSegs(main);
+  // ฟอนต์โหลดเสร็จแล้วความกว้างตัวหนังสือเปลี่ยน จัดแท็บย่อยและแถบห้องให้อยู่ในจออีกครั้ง
+  document.fonts?.ready.then(() => { if (!main.isConnected) return; fitSegs(main); $('#tabs [aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' }); updTabs(); });
   if (id !== lastId) main.focus({ preventScroll: true });
   else if (wasIn) restoreFocus(fk, main);
   lastId = id;
@@ -1365,9 +1408,40 @@ function numberMessage(el) {
   return '';
 }
 
+// ข้อความใต้ช่องที่กรอกไม่ครบหรือผิด เป็นภาษาไทยเสมอ (กล่องเตือนของเบราว์เซอร์บางเครื่องเป็นภาษาอังกฤษและหายเอง)
+function fieldMessage(el) {
+  if (el instanceof HTMLInputElement && el.type === 'number') return numberMessage(el) || 'ใส่จำนวนให้ถูกต้อง';
+  const v = el.validity;
+  if (v.valueMissing) return el.tagName === 'SELECT' ? `${el.options[0] && !el.options[0].value ? el.options[0].textContent : 'เลือกช่องนี้'}ก่อนบันทึก` : 'กรอกช่องนี้ก่อนบันทึก';
+  if (v.patternMismatch) return el.title || 'รูปแบบไม่ถูกต้อง';
+  if (v.tooLong) return `ยาวเกิน ${el.maxLength} ตัวอักษร`;
+  if (v.rangeUnderflow || v.rangeOverflow) return `อยู่นอกช่วงที่รับได้`;
+  return 'รูปแบบไม่ถูกต้อง';
+}
+function markInvalid(el) {
+  el.setAttribute('aria-invalid', 'true');
+  let m = el.parentElement.querySelector(':scope > .f-err');
+  if (!m) { m = document.createElement('span'); m.className = 'f-err'; m.id = `err-${Math.random().toString(36).slice(2, 8)}`; el.after(m); }
+  m.textContent = fieldMessage(el);
+  el.setAttribute('aria-describedby', m.id);
+}
+
 function bind() {
-  document.addEventListener('invalid', (e) => { const el = e.target; if (el instanceof HTMLInputElement && el.type === 'number') { el.setCustomValidity(''); const m = numberMessage(el); if (m) el.setCustomValidity(m); } }, true);
-  document.addEventListener('input', (e) => { const el = e.target; if (el instanceof HTMLInputElement && el.type === 'number') el.setCustomValidity(''); if (el.getAttribute?.('aria-invalid') === 'true' && !el.dataset.act) el.removeAttribute('aria-invalid'); }, true);
+  let firstBad = null;
+  document.addEventListener('invalid', (e) => {
+    const el = e.target;
+    if (el instanceof HTMLInputElement && el.type === 'number') { el.setCustomValidity(''); const m = numberMessage(el); if (m) el.setCustomValidity(m); }
+    if (!el.form || !el.form.closest('#main')) return;
+    e.preventDefault();
+    markInvalid(el);
+    if (!firstBad) { firstBad = el; el.focus(); setTimeout(() => { firstBad = null; }, 0); }
+  }, true);
+  document.addEventListener('input', (e) => {
+    const el = e.target;
+    if (el instanceof HTMLInputElement && el.type === 'number') el.setCustomValidity('');
+    if (el.getAttribute?.('aria-invalid') === 'true' && !el.dataset.act) { el.removeAttribute('aria-invalid'); el.removeAttribute('aria-describedby'); el.parentElement?.querySelector(':scope > .f-err')?.remove(); }
+    el.form?.querySelector('.form-err')?.remove();
+  }, true);
   let curHash = location.hash;
   window.addEventListener('hashchange', () => {
     const next = location.hash;
@@ -1403,6 +1477,8 @@ function bind() {
   // ลิงก์ข้ามไปเนื้อหา: เลื่อนและโฟกัสเนื้อหาในหน้าเดิม ไม่เปลี่ยนที่อยู่หน้า (ตัวจัดหน้าอ่าน #main เป็นหน้าที่ไม่มี) WCAG 2.4.1
   $('.skip')?.addEventListener('click', (e) => { e.preventDefault(); main.focus({ preventScroll: true }); main.scrollIntoView({ block: 'start' }); });
   narrowMQ.addEventListener('change', renderUserOptions);
+  tabsScroller();
+  addEventListener('resize', () => fitSegs(main));
   // กันดับเบิลคลิกและกดรัว (QA-002 QA-037): ปุ่มที่บันทึกข้อมูล คลิกที่สองของดับเบิลคลิก หรือคลิกซ้ำภายใน 0.6 วินาที ไม่นับ
   // หลังคลิกแรก หน้าจอวาดใหม่และการ์ดหรือแถวถัดไปอาจเลื่อนมาอยู่ใต้เมาส์พอดี คลิกที่สองจึงไปโดนรายการอื่น (คลิกจากแป้นพิมพ์ไม่โดนกัน)
   const COMMIT_ACTS = new Set(['move', 'release', 'pay', 'prStep', 'prReject', 'toggleActive', 'reset', 'become']);
@@ -1459,7 +1535,9 @@ function bind() {
     const form = e.target.closest('[data-form]');
     if (!form) return;
     e.preventDefault();
-    guard(() => submitForm(form, e));
+    form.querySelector('.form-err')?.remove();
+    formCtx.form = form;
+    try { guard(() => submitForm(form, e)); } finally { formCtx.form = null; }
   });
   function submitForm(form, e) {
     const kind = form.dataset.form;

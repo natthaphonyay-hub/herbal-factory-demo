@@ -20,7 +20,8 @@ let page = br.page;
 const H = `(() => {
   const { data, ui } = window.qa;
   // อ่านข้อความแจ้งจากหน้าจอตรงๆ (ตัวดักเดิมทำงานช้ากว่าหนึ่งจังหวะ ข้อความจึงว่างในรอบก่อน)
-  const toasts = { get length() { return document.querySelectorAll('#toast .toast').length; }, slice: (a) => [...document.querySelectorAll('#toast .toast')].slice(a).map((x) => x.textContent.trim()) };
+  // รอบตรวจความเรียบร้อย: ข้อผิดตอนส่งฟอร์มขึ้นในฟอร์ม (.form-err) ไม่ลอยมุมจอ จึงอ่านทั้งสองที่
+  const toasts = { get length() { return document.querySelectorAll('#toast .toast').length; }, slice: (a) => [...[...document.querySelectorAll('#toast .toast')].slice(a).map((x) => x.textContent.trim()), ...[...document.querySelectorAll('#main .form-err')].map((x) => x.textContent.trim())] };
   const S = data.S;
   const as = (u) => data.setUser(u);
   const go = (h) => { history.replaceState(null, '', h); ui.nav.route(); };

@@ -133,7 +133,9 @@ export function viewItem(p) {
       ${field('แนะนำสั่งหรือผลิตเพิ่ม', st.suggestQty > 0 ? qh(code, st.suggestQty) : 'ยังไม่ต้อง')}${field('ระดับบริการเป้าหมาย', `${num(st.target * 100)}%`)}${field('อายุหลังรับหรือผลิต', it.shelf_days ? `${num(it.shelf_days)} วัน` : 'ไม่กำหนด')}
     </dl>` : `<dl class="fields fields-auto">${field('ตรวจสอบแล้ว เบิกได้', qh(code, sumLots(code, usable)))}${field('รอปล่อยผ่าน', qh(code, sumLots(code, (l) => l.status === 'รอปล่อยผ่าน')))}${field('อายุหลังรับ', it.shelf_days ? `${num(it.shelf_days)} วัน` : 'ไม่กำหนด')}</dl>
       <p class="panel-foot">${it.make === 'farm' ? 'สมุนไพรสดรับจากเกษตรกรแล้วเข้าแปรรูปต่อเลย ระบบจึงไม่ตั้งจุดสั่งซื้อให้ ใช้ความต้องการของรูปแบบแห้งและผงวางแผนรับซื้อแทน' : 'ยังไม่มีประวัติการเบิกพอคำนวณจุดสั่งซื้อ'}</p>`;
-  return head(it.name, alerts, acts, sub) + alertsBlock(alerts, 'ไม่มีแจ้งเตือนของรายการนี้วันนี้') + `
+  const quietLv = st && active(it) && !alerts.length ? st.level : 'ok';
+  const quiet = quietLv !== 'ok' ? (st.onOrder > 0 ? `ระดับคงคลัง${LEVEL_TEXT[quietLv]} แต่มีของสั่งแล้วหรือกำลังผลิตอยู่ ${qty(code, st.onOrder)} รวมแล้วเกินจุดสั่งซื้อ จึงยังไม่ขึ้นคูปองเตือน` : `ระดับคงคลัง${LEVEL_TEXT[quietLv]} ดูจำนวนในช่องด้านล่าง`) : 'ไม่มีแจ้งเตือนของรายการนี้วันนี้';
+  return head(it.name, alerts, acts, sub) + alertsBlock(alerts, quiet, { quietLevel: quietLv }) + `
   <div class="work">
     <div class="stack">
       <section class="panel" aria-labelledby="st-h"><div class="panel-h"><h2 id="st-h">คงคลังและเกณฑ์สั่ง</h2><span class="meta">ใช้เฉลี่ยจากการเบิก 90 วันล่าสุด</span></div>${stock}</section>

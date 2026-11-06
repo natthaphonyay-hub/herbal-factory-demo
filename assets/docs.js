@@ -33,11 +33,16 @@ const sign = (role, name = '', date = '') => `<div class="sign"><div class="sign
 function paper(code, title, body, opt = {}) {
   return `<article class="paper${opt.landscape ? ' landscape' : ''}" aria-label="${esc(title)}">
     ${code ? `<div class="paper-code">${esc(code)}</div>` : ''}
-    ${opt.noOrg ? '' : `<header class="paper-h"><div class="paper-org">${esc(ORG.factory)} ${esc(ORG.center)} ${esc(ORG.hospital)}</div><h1>${esc(title)}</h1>${opt.sub ? `<div class="paper-sub">${opt.sub}</div>` : ''}</header>`}
+    ${opt.noOrg ? '' : `<header class="paper-h"><div class="paper-org">${esc(ORG.factory)} ${esc(ORG.center)} ${esc(ORG.hospital)}</div><h2 class="paper-title">${esc(title)}</h2>${opt.sub ? `<div class="paper-sub">${opt.sub}</div>` : ''}</header>`}
     ${body}
     <footer class="paper-f">พิมพ์จากระบบต้นแบบ ข้อมูลจำลอง ใช้เป็นตัวอย่างเท่านั้น พิมพ์เมื่อ ${esc(thaiFullDate(S.today))}</footer></article>`;
 }
-const table = (heads, rows, cls = '') => `<table class="ptable ${cls}"><thead><tr>${heads.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.join('') || `<tr><td colspan="${heads.length}" class="center">ไม่มีรายการ</td></tr>`}</tbody></table>`;
+// วันที่ เลขล็อต เลขเอกสาร และรหัส SOP ในแบบพิมพ์ ไม่ตัดกลางบรรทัด
+const NW_RE = /(\d{1,2} [ก-๙]{1,3}\.[ก-๙]{1,3}\.(?: \d{2,4})?|(?:[A-Z]{1,3}|[ก-ฮ]{2})\d{2}-\d{3,4}|[A-Z]{2,3}(?:-[A-Z]{2,3})?-\d{2,4}|\d{8})/g;
+const nw = (html) => html.replace(/>([^<]+)</g, (m, t) => `>${t.replace(NW_RE, '<span class="nw">$1</span>')}<`);
+const TH_MONTH_LONG = new Intl.DateTimeFormat('th-TH', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+const thMonthLong = (ym) => TH_MONTH_LONG.format(new Date(`${ym}-01T00:00:00Z`));
+const table = (heads, rows, cls = '') => `<table class="ptable ${cls}"><thead><tr>${heads.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>${nw(rows.join('')) || `<tr><td colspan="${heads.length}" class="center">ไม่มีรายการ</td></tr>`}</tbody></table>`;
 const kindTH = (it) => ({ 'แห้ง': 'วัตถุดิบ', 'ผง': 'วัตถุดิบ', 'สด': 'วัตถุดิบ', 'เคมีภัณฑ์': 'สารเคมี', 'บรรจุภัณฑ์': 'บรรจุภัณฑ์', 'ฉลาก': 'ฉลาก' }[it.kind] || it.kind);
 export function bahtText(n) {
   const D1 = ['ศูนย์', 'หนึ่ง', 'สอง', 'สาม', 'สี่', 'ห้า', 'หก', 'เจ็ด', 'แปด', 'เก้า'];
@@ -70,7 +75,7 @@ function picker(type) {
   if (type === 'fm19') return sel('inv', S.invoices.filter((v) => v.date <= S.today).slice(-40).reverse().map((v) => opt(v.inv_no, `${v.inv_no} ${short(custName(v.customer_id))} ${thaiDate(v.date)}`)).join(''));
   if (type === 'req') return sel('job', S.jobs.filter((j) => j.status !== 'waiting').slice(-40).reverse().map((j) => opt(j.job_id, `${j.job_id} ${S.items.get(j.item_code).name}`)).join(''));
   if (type === 'fm23') return sel('lot', S.lots.filter((l) => S.items.get(l.item_code)?.kind === 'สด').slice(-40).reverse().map((l) => opt(l.lot_no, `${l.lot_no} ${S.items.get(l.item_code).name} ${thaiDate(l.date_in)}`)).join(''));
-  if (type === 'fm35') return sel('month', Array.from({ length: 12 }, (_, i) => { const d = new Date(Date.UTC(...S.today.split('-').map(Number).slice(0, 2).map((x, k) => (k === 1 ? x - 1 - i : x)), 1)); const k = d.toISOString().slice(0, 7); return opt(k, k); }).join(''));
+  if (type === 'fm35') return sel('month', Array.from({ length: 12 }, (_, i) => { const d = new Date(Date.UTC(...S.today.split('-').map(Number).slice(0, 2).map((x, k) => (k === 1 ? x - 1 - i : x)), 1)); const k = d.toISOString().slice(0, 7); return opt(k, thMonthLong(k)); }).join(''));
   if (type === 'fm08') return sel('id', S.base.assets.map((a) => opt(a.asset_id, `${a.asset_id} ${a.name}`)).join(''));
   if (type === 'formula') return sel('code', [...S.items.values()].filter(isFG).map((it) => opt(it.code, `${it.code} ${it.name}`)).join(''));
   if (['pr-memo', 'pr-report', 'po', 'inspect', 'pay'].includes(type)) return sel('id', prs.map((r) => opt(r.pr_no, `${r.pr_no} ${S.items.get(r.item_code).name} ${prStage(r).title}`)).join(''));
@@ -156,7 +161,7 @@ function fm35(p) {
   const month = p.get('month') || S.today.slice(0, 7);
   const rs = S.releases.filter((r) => r.date.startsWith(month) && isFG(S.items.get(r.item_code))).sort((a, b) => a.date.localeCompare(b.date));
   return paper('FM-35', 'บันทึกการปล่อยผ่านผลิตภัณฑ์สำเร็จรูป', table(['ว/ด/ป', 'ผลิตภัณฑ์สำเร็จรูป', 'Lot No.', 'ผ่าน', 'ไม่ผ่าน', 'แก้ไข', 'ทำลาย', 'ผู้ตรวจ/ ผู้อนุมัติปล่อยผ่าน', 'หมายเหตุ'],
-    rs.map((r) => `<tr><td>${esc(thaiDate(r.date))}</td><td>${esc(S.items.get(r.item_code).name)}</td><td>${esc(r.lot_no)}</td><td class="center">${tick(r.result === 'ผ่าน')}</td><td class="center">${tick(r.result !== 'ผ่าน')}</td><td class="center">${tick(false)}</td><td class="center">${tick(false)}</td><td>${esc(short(staff(r.checker_id).name))} / ${esc(short(staff(r.approver_id).name))}</td><td>${esc(r.note || '')}</td></tr>`)), { landscape: true, sub: `เดือน ${esc(month)}` });
+    rs.map((r) => `<tr><td>${esc(thaiDate(r.date))}</td><td>${esc(S.items.get(r.item_code).name)}</td><td>${esc(r.lot_no)}</td><td class="center">${tick(r.result === 'ผ่าน')}</td><td class="center">${tick(r.result !== 'ผ่าน')}</td><td class="center">${tick(false)}</td><td class="center">${tick(false)}</td><td>${esc(short(staff(r.checker_id).name))} / ${esc(short(staff(r.approver_id).name))}</td><td>${esc(r.note || '')}</td></tr>`)), { landscape: true, sub: `เดือน${esc(thMonthLong(month))}` });
 }
 function fm43() {
   const rows = S.base.assets.map((a, i) => `<tr><td class="center">${i + 1}</td><td>${esc(a.name)}</td><td>${esc(a.asset_no)}</td><td>${esc(a.serial)}</td><td class="center">${esc(a.year)}</td><td>${esc(a.vendor)}</td><td>${esc(a.sop)}</td><td>${esc(a.room)}</td><td>${esc(short(staff(a.owner_id).name))}</td><td>${esc(a.status)}</td><td>${esc(a.note || '')}</td></tr>`);
@@ -332,7 +337,7 @@ const RENDER = { fm01, fm02, fm19, req, fm23, fm35, fm43, fm08, fm46, products, 
 export function viewDocs(p) {
   const type = p.get('type');
   if (!type || !RENDER[type]) return docList();
-  return `<div class="doc-bar">${nav.prev ? backLink('btn') : `<a class="btn" href="#/docs">${I.left}กลับไปรายการเอกสาร</a>`}<span class="doc-bar-t">${esc(TITLE[type])}</span><button type="button" class="btn btn-solid" data-act="print">${I.print}พิมพ์หรือบันทึกเป็น PDF</button></div>
+  return `<div class="doc-bar">${nav.prev ? backLink('btn') : `<a class="btn" href="#/docs">${I.left}กลับไปรายการเอกสาร</a>`}<h1 class="doc-bar-t">${esc(TITLE[type])}</h1><button type="button" class="btn btn-solid" data-act="print">${I.print}พิมพ์หรือบันทึกเป็น PDF</button></div>
     <div class="papers">${RENDER[type](p)}</div>`;
 }
 export { chip, daysBetween, PROC_STEPS };

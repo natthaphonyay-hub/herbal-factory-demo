@@ -65,11 +65,11 @@ export const ROOMS = [
 ];
 // เครื่องมือที่ทุกคนใช้ได้
 export const TOOLS = [
-  { id: 'notes', title: 'บันทึกถึงฝ่าย' },
-  { id: 'docs', title: 'เอกสาร' },
-  { id: 'registers', title: 'ทะเบียน' },
-  { id: 'trace', title: 'ไล่ย้อนล็อต' },
-  { id: 'log', title: 'ประวัติการแก้ไข' },
+  { id: 'notes', title: 'บันทึกถึงฝ่าย', short: 'บันทึก' },
+  { id: 'docs', title: 'เอกสาร', short: 'เอกสาร' },
+  { id: 'registers', title: 'ทะเบียน', short: 'ทะเบียน' },
+  { id: 'trace', title: 'ไล่ย้อนล็อต', short: 'ไล่ย้อน' },
+  { id: 'log', title: 'ประวัติการแก้ไข', short: 'ประวัติ' },
 ];
 // ตัวย่อตำแหน่งและสีประจำฝ่าย (วงกลมบนการ์ดงาน) ตัวย่อตามที่ใช้ในหนังสือราชการ หน. จนท. พนง.
 export const DEPTS = {

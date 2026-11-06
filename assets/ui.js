@@ -8,8 +8,9 @@ export const num = (n, d = 0) => Number(n || 0).toLocaleString('th-TH', { minimu
 export const num2 = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 export const unitOf = (code) => S.items.get(code)?.unit || '';
 export const qn = (code, q) => (isIntUnit(unitOf(code)) ? num(q) : num2(q));
-export const qty = (code, q) => `${qn(code, q)} ${unitOf(code)}`;
-export const qh = (code, q) => `<span class="num">${qn(code, q)}</span><span class="u">${esc(unitOf(code))}</span>`;
+// ตัวเลขกับหน่วยไม่แยกบรรทัด (ตรวจความเรียบร้อย ข้อ 17)
+export const qty = (code, q) => `${qn(code, q)} ${unitOf(code)}`;
+export const qh = (code, q) => `<span class="qty"><span class="num">${qn(code, q)}</span><span class="u">${esc(unitOf(code))}</span></span>`;
 export const money = (n) => `${num(n)} บาท`;
 export const baht = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const mill = (n) => (n / 1e6).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -69,12 +70,29 @@ export function deptLegend() {
   return `<span class="legend" aria-label="สีประจำฝ่าย">${Object.entries(DEPTS).map(([name, d]) => `<span><i style="background:${d.color}"></i>${esc(d.abbr === 'บริหาร' ? 'บริหาร' : d.abbr)}</span>`).join('')}</span>`;
 }
 
+// ข้อผิดที่เกิดตอนส่งฟอร์ม ขึ้นในฟอร์มเหนือปุ่มบันทึก ไม่ขึ้นเป็นข้อความลอยมุมจอที่หายเอง (ตรวจความเรียบร้อย ข้อ 16)
+export const formCtx = { form: null };
+export function showFormError(form, msg) {
+  let el = form.querySelector('.form-err');
+  if (!el) {
+    el = document.createElement('p');
+    el.className = 'form-err';
+    el.setAttribute('role', 'alert');
+    const acts = form.querySelector('.form-actions');
+    if (acts) acts.before(el); else form.append(el);
+  }
+  el.textContent = msg;
+  el.scrollIntoView({ block: 'nearest' });
+}
 export function toast(msg, level = 'ok') {
+  if (level !== 'ok' && formCtx.form && formCtx.form.isConnected) return showFormError(formCtx.form, msg);
   const el = document.createElement('div');
   el.className = `toast toast-${level}`;
-  el.textContent = msg;
+  el.innerHTML = `<span class="toast-t"></span><button type="button" class="toast-x" aria-label="ปิดข้อความ">${I.close}</button>`;
+  el.querySelector('.toast-t').textContent = msg;
+  el.querySelector('.toast-x').addEventListener('click', () => el.remove());
   $('#toast').appendChild(el);
-  setTimeout(() => el.remove(), 5600);
+  setTimeout(() => el.remove(), level === 'ok' ? 5600 : 9000);
 }
 export function download(name, text, type = 'text/csv;charset=utf-8') {
   const a = document.createElement('a');
@@ -173,7 +191,7 @@ export function slipBlock(room) {
   const { o } = s;
   return `<section class="slip" aria-label="${esc(o.k)}" tabindex="-1">
     <div><div class="slip-k">${esc(o.k)}</div><div class="slip-no">${esc(o.no)}</div></div>
-    <div class="slip-main"><div class="t">${esc(o.title)}</div>${(o.lines || []).map((l) => `<div class="d">${esc(l)}</div>`).join('')}
+    <div class="slip-main"><div class="t">${keepCodes(esc(o.title))}</div>${(o.lines || []).map((l) => `<div class="d">${keepCodes(esc(l))}</div>`).join('')}
       ${o.links ? `<div class="slip-links">${o.links.map(([t, href]) => `<a href="${href}">${I.doc}${esc(t)}</a>`).join('')}</div>` : ''}</div>
     ${stamp(o.stamp[0], o.stamp[1], true)}
     <button type="button" class="slip-x" data-act="slipClose" aria-label="ปิดสำเนา">${I.close}</button>
@@ -200,7 +218,7 @@ function routeBar(t) {
     ${gap ? `<div class="route-gap" aria-hidden="true">ของหมดก่อนของมาถึง ${gap} วัน</div>` : ''}`;
 }
 // รหัส เลขที่ผลิต เลขรับ ใบสั่งซื้อ ใบขอซื้อ ไม่ให้ตัดบรรทัดกลางรหัส
-const keepCodes = (html) => html.replace(/((?:[A-Z]{1,3}|[ก-ฮ]{2})\d{2}-\d{3,4}|\d{8})/g, '<span class="nowrap">$1</span>');
+export const keepCodes = (html) => html.replace(/((?:[A-Z]{1,3}|[ก-ฮ]{2})\d{2}-\d{3,4}|[A-Z]{2,3}-\d{2,4}|\d{8})/g, '<span class="nowrap">$1</span>');
 // การ์ดที่ผู้ใช้ตอนนี้ทำเองไม่ได้ (ห้องปลายทางล็อก) แสดงเป็นแจ้งให้ทราบ บอกว่าฝ่ายไหนเป็นคนทำ (QA-033)
 function goOrInfo(a) {
   const id = String(a.go || '').split('?')[0];
@@ -210,27 +228,33 @@ function goOrInfo(a) {
 }
 export function coupon(a) {
   return `<article class="coupon lv-${a.level}">
-    <div class="stub"><span class="stub-k">${esc(a.stub.k)}</span><span class="stub-n">${esc(a.stub.n)}${a.stub.u ? `<small>${esc(a.stub.u)}</small>` : ''}</span><span class="stub-ref">${esc(a.stub.ref || '')}</span></div>
+    <div class="stub"><span class="stub-k">${esc(a.stub.k)}</span><span class="stub-n">${esc(a.stub.n)}${a.stub.u ? `<small>${esc(a.stub.u)}</small>` : ''}</span><span class="stub-ref">${keepCodes(esc(a.stub.ref || ''))}</span></div>
     <div class="cbody"><h3><span class="sr">${LEVEL_TEXT[a.level]} </span>${subjectHref(a) ? `<a class="c-link" href="${subjectHref(a)}">${keepCodes(esc(a.title))}</a>` : keepCodes(esc(a.title))}</h3>
-      <dl class="fields">${a.fields.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
+      <dl class="fields">${a.fields.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${keepCodes(esc(v))}</dd></div>`).join('')}</dl>
       ${a.timeline ? routeBar(a.timeline) : ''}
       ${goOrInfo(a)}</div>
     ${stamp(a.stamp, a.level)}
   </article>`;
 }
-const compactAlert = (a) => `<li>${chip(a.stamp, a.level)}<span class="t">${subjectHref(a) ? `<a href="${subjectHref(a)}">${keepCodes(esc(a.title))}</a>` : keepCodes(esc(a.title))}<span class="d">${esc(a.detail)}</span></span>${goOrInfo(a).replace('class="go"', 'class="go-l"')}</li>`;
+const compactAlert = (a, cls = '') => `<li${cls ? ` class="${cls}"` : ''}>${chip(a.stamp, a.level)}<span class="t">${subjectHref(a) ? `<a href="${subjectHref(a)}">${keepCodes(esc(a.title))}</a>` : keepCodes(esc(a.title))}<span class="d">${esc(a.detail)}</span></span>${goOrInfo(a).replace('class="go"', 'class="go-l"')}</li>`;
 export function alertsBlock(alerts, emptyText, opt = {}) {
-  // แท็บที่เป็นฟอร์ม: พับแจ้งเตือนเป็นแถบเดียว ฟอร์มขึ้นก่อน (QA-026)
+  // เรื่องที่ห้องนี้ทำเองได้ขึ้นก่อน เรื่องที่แจ้งให้ทราบ (ฝ่ายอื่นทำ) ตามหลัง ในแต่ละกลุ่มยังเรียงวิกฤตก่อนเหมือนเดิม
+  const mine = (a) => { const room = ROOMS.find((r) => r.id === String(a.go || '').split('?')[0]); return !room || canEnter(room, currentUser().role); };
+  alerts = [...alerts.filter(mine), ...alerts.filter((a) => !mine(a))];
+  // แท็บอื่นที่ไม่ใช่แท็บแรกของห้อง: พับแจ้งเตือนเป็นแถบเดียว งานของแท็บขึ้นก่อน (QA-026 ตรวจความเรียบร้อย ข้อ 10)
   if (opt.fold && alerts.length) {
     const c = alerts.filter((a) => a.level === 'crit').length;
-    return `<details class="alerts-fold"><summary>แจ้งเตือนของฝ่าย ${alerts.length} เรื่อง${c ? ` วิกฤต ${c} เรื่อง` : ''} กดเพื่อดู</summary><ul class="alist">${alerts.map(compactAlert).join('')}</ul></details>`;
+    return `<details class="alerts-fold"><summary>${I.right}<span>แจ้งเตือนของฝ่าย ${alerts.length} เรื่อง${c ? ` วิกฤต ${c} เรื่อง` : ''}</span><span class="fold-hint">กดเพื่อดู</span></summary><ul class="alist">${alerts.map((a) => compactAlert(a)).join('')}</ul></details>`;
   }
-  if (!alerts.length) return `<p class="alerts-quiet">${chip('ปกติ', 'ok')} ${esc(emptyText || 'ไม่มีแจ้งเตือนของฝ่ายวันนี้ ระบบจะขึ้นคูปองเมื่อมีของใกล้หมด ของมาไม่ทัน ของใกล้หมดอายุ เครื่องมือใกล้ครบกำหนด หรืองานหยุด')}</p>`;
+  if (!alerts.length) { const lv = opt.quietLevel || 'ok'; return `<p class="alerts-quiet">${chip(LEVEL_TEXT[lv], lv)} ${esc(emptyText || 'ไม่มีแจ้งเตือนของฝ่ายวันนี้ ระบบจะขึ้นคูปองเมื่อมีของใกล้หมด ของมาไม่ทัน ของใกล้หมดอายุ เครื่องมือใกล้ครบกำหนด หรืองานหยุด')}</p>`; }
   const top = alerts.slice(0, 3);
   const rest = alerts.slice(3);
+  // จอมือถือแสดงคูปองใบแรกใบเดียว ใบที่เหลือรวมไว้ในรายการพับ งานของแท็บขึ้นเร็วขึ้น
+  const phoneRest = top.slice(1);
+  const nDesk = rest.length, nPhone = rest.length + phoneRest.length;
   return `<section class="alerts" aria-labelledby="al-h"><h2 id="al-h" class="sr">แจ้งเตือน ${alerts.length} เรื่อง</h2>
     <div class="coupons">${top.map(coupon).join('')}</div>
-    ${rest.length ? `<details class="more"><summary>เรื่องอื่นอีก ${rest.length} เรื่อง</summary><ul class="alist">${rest.map(compactAlert).join('')}</ul></details>` : ''}
+    ${nPhone ? `<details class="more${nDesk ? '' : ' ph-only'}"><summary><span class="ph-hide">เรื่องอื่นอีก ${nDesk} เรื่อง</span><span class="ph-only">เรื่องอื่นอีก ${nPhone} เรื่อง</span></summary><ul class="alist">${phoneRest.map((a) => compactAlert(a, 'ph-only')).join('')}${rest.map((a) => compactAlert(a)).join('')}</ul></details>` : ''}
   </section>`;
 }
 export const seg = (room, tabs, cur, extra = '') => `<nav class="seg" aria-label="งานในห้อง">${tabs.map(([k, t]) => `<a href="#/${room}?tab=${k}${extra}" ${k === cur ? 'aria-current="page"' : ''}>${esc(t)}</a>`).join('')}</nav>`;
