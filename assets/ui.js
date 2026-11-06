@@ -76,9 +76,9 @@ export function toast(msg, level = 'ok') {
   $('#toast').appendChild(el);
   setTimeout(() => el.remove(), 5600);
 }
-export function download(name, text) {
+export function download(name, text, type = 'text/csv;charset=utf-8') {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+  a.href = URL.createObjectURL(new Blob([text], { type }));
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
@@ -86,6 +86,69 @@ export function download(name, text) {
 export const can = (key) => (CAN[key] || []).includes(currentUser().role);
 export const deny = (key, what) => toast(`${what}ได้เฉพาะ${(CAN[key] || []).join(' หรือ ')} เปลี่ยนผู้ใช้ที่มุมขวาบนเพื่อทดลอง`, 'warn');
 export const roleNote = (key, what) => (can(key) ? '' : `<p class="form-note">ผู้ใช้ตอนนี้ ${esc(short(currentUser().name))} ${esc(currentUser().role)} ดูได้อย่างเดียว ${esc(what)}ได้เฉพาะ${esc((CAN[key] || []).join(' หรือ '))}</p>`);
+
+// ---------- กล่องยืนยันกลาง (QA-037 QA-002 QA-018) ----------
+// ใช้ <dialog> ของเบราว์เซอร์: โฟกัสอยู่ในกล่อง กด Esc ปิด ส่วนอื่นของหน้ากดไม่ได้จนกว่าจะปิด
+// กันดับเบิลคลิก: คลิกที่สองของดับเบิลคลิก และคลิกเมาส์ภายใน 0.45 วินาทีหลังกล่องเปิด ไม่นับ (คลิกจากแป้นพิมพ์ไม่โดน)
+// onOk คืนข้อความ = ยังบันทึกไม่ได้ แสดงในกล่องแล้วรอแก้ คืน false = ไม่ปิดกล่อง (ตรวจค่าใน onOk เอง ข้อความเป็นไทยและเห็นชัดในกล่อง)
+let dlgOpen = null;
+export function closeDialog() {
+  const d = dlgOpen;
+  dlgOpen = null;
+  if (!d) return;
+  if (d.open) d.close();
+  d.remove();
+}
+export function openDialog({ title, body, ok = 'ยืนยัน', tone = 'solid', cancel = 'ยกเลิก', onOk, onInput }) {
+  closeDialog();
+  const d = document.createElement('dialog');
+  d.className = 'dlg';
+  d.setAttribute('aria-labelledby', 'dlg-h');
+  d.innerHTML = `<form class="dlg-f" novalidate><h2 id="dlg-h" tabindex="-1">${esc(title)}</h2><div class="dlg-b">${body}</div><p class="dlg-err" role="alert" hidden></p>
+    <div class="dlg-a"><button type="button" class="btn" data-dlg="cancel">${esc(cancel)}</button><button type="submit" class="btn btn-${tone}" data-dlg="ok">${esc(ok)}</button></div></form>`;
+  document.body.appendChild(d);
+  const f = d.querySelector('form');
+  const t0 = performance.now();
+  d.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (e.detail > 1 || (e.detail === 1 && performance.now() - t0 < 450)) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+    if (b.dataset.dlg === 'cancel') closeDialog();
+  }, true);
+  d.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.repeat) e.preventDefault(); });
+  f.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const err = d.querySelector('.dlg-err');
+    const r = onOk(new FormData(f), f);
+    if (typeof r === 'string') { err.textContent = r; err.hidden = false; return; }
+    if (r !== false && dlgOpen === d) closeDialog();
+  });
+  if (onInput) f.addEventListener('input', () => onInput(f));
+  d.addEventListener('close', () => { if (dlgOpen === d) dlgOpen = null; d.remove(); });
+  dlgOpen = d;
+  d.showModal();
+  (d.querySelector('[autofocus]') || d.querySelector('#dlg-h')).focus();
+  if (onInput) onInput(f);
+  return d;
+}
+
+// ---------- แถบเตือนที่เก็บข้อมูล (แสดงทุกหน้าจนกว่าจะแก้) ----------
+export function storeBanner() {
+  const st = S.store;
+  if (st.broken) {
+    const n = st.broken.salvage.length;
+    return `<section class="sysalert" role="alert"><div><strong>อ่านข้อมูลที่ทดลองกรอกในเครื่องนี้ไม่ได้ (ข้อมูลเสีย)</strong>
+      <p>ระบบหยุดบันทึกไว้ก่อน ข้อมูลเดิมยังอยู่ ไม่ถูกเขียนทับ ${n ? `ตอนนี้แสดง ${num(n)} รายการที่อ่านได้` : 'อ่านรายการไม่ได้เลย'} ดาวน์โหลดข้อมูลเดิมเก็บไว้ก่อน แล้วเลือกทางแก้</p></div>
+      <div class="sys-acts"><button type="button" class="btn btn-sm" data-sys="download">${I.download}ดาวน์โหลดข้อมูลเดิม</button>${n ? `<button type="button" class="btn btn-sm btn-solid" data-sys="salvage">กู้ ${num(n)} รายการที่อ่านได้</button>` : ''}<button type="button" class="btn btn-sm btn-crit" data-sys="restart">ล้างแล้วเริ่มใหม่</button></div></section>`;
+  }
+  const use = (st.chars + st.other) / 5000000;
+  if (st.full || use >= 0.8) {
+    return `<section class="sysalert${st.full ? '' : ' is-warn'}" role="${st.full ? 'alert' : 'status'}"><div><strong>${st.full ? 'บันทึกไม่ได้ ที่เก็บข้อมูลในเบราว์เซอร์เต็ม' : `ที่เก็บข้อมูลในเบราว์เซอร์ใช้ไปแล้ว ${num(use * 100)}%`}</strong>
+      <p>${st.full ? 'รายการล่าสุดยังไม่ถูกบันทึก ' : 'ใกล้เต็มแล้ว ถ้าเต็มจะบันทึกไม่ได้ '}ให้หัวหน้ากลุ่มงานส่งออกประวัติเก็บไว้ แล้วล้างข้อมูลทดลองที่หน้าประวัติการแก้ไข (ต้นแบบนี้เก็บข้อมูลในเบราว์เซอร์ ไม่เหมาะกับงานจริง)</p></div>
+      <div class="sys-acts"><a class="btn btn-sm" href="#/log">ไปหน้าประวัติการแก้ไข</a></div></section>`;
+  }
+  return '';
+}
 
 // ตัวนำทาง (app.js ตั้งค่าให้ตอนเริ่ม) เพื่อให้ทุกส่วนสั่งวาดหน้าใหม่ได้
 export const nav = { route: () => {} };

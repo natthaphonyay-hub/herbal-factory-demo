@@ -71,7 +71,7 @@ function nextAction(r, st) {
   if (st.key === 'received') return `<a class="btn btn-sm${allowed ? ' btn-solid' : ''}" href="#/store?tab=receive&item=${r.item_code}&po=${encodeURIComponent(r.po_no)}">รับของ FM-01</a>`;
   const label = { head_ok: 'เห็นชอบ', dir_ok: 'อนุมัติ', ordered: 'ออกใบสั่งซื้อ', inspected: 'ตรวจรับพัสดุ', pay_requested: 'ขออนุมัติเบิกจ่าย', paid: 'บันทึกจ่ายเงินแล้ว', requested: 'ส่งขออนุมัติ' }[st.key];
   const reject = ['head_ok', 'dir_ok'].includes(st.key) && allowed ? `<button type="button" class="btn btn-sm btn-crit" data-act="prReject" data-pr="${esc(r.pr_no)}">ไม่อนุมัติ</button>` : '';
-  return allowed ? `<button type="button" class="btn btn-sm btn-solid" data-act="prStep" data-pr="${esc(r.pr_no)}" data-step="${st.key}">${esc(label)}</button>${reject}` : `<span class="sub-l">รอ ${esc(STEP[st.key].who)}</span>`;
+  return allowed ? `<button type="button" class="btn btn-sm btn-solid" data-act="prStep" data-pr="${esc(r.pr_no)}" data-step="${st.key}">${esc(label)}</button>${reject}` : `<span class="sub-l">รอ ${esc(STEP[st.key].who)}${st.key === 'inspected' ? ' (ทำในห้องฝ่ายผลิต แท็บตรวจรับพัสดุ)' : ''}</span>`;
 }
 
 export function viewBuy(p) {
@@ -109,6 +109,20 @@ export function viewBuy(p) {
   </div>`;
 }
 
+// ใบขอซื้อที่รอตรวจรับพัสดุ แสดงในห้องฝ่ายผลิต เพราะผู้ตรวจรับพัสดุ (สมมุติให้เป็นหัวหน้าฝ่ายผลิต) เข้าห้องคลังไม่ได้ (QA-001)
+export const inspectQueue = () => S.prs.map((r) => ({ r, st: prStage(r) })).filter((x) => x.st.key === 'inspected').sort((a, b) => a.st.since.localeCompare(b.st.since));
+export function viewInspect() {
+  const xs = inspectQueue();
+  const allowed = can('inspected');
+  return `<section class="panel" aria-labelledby="ins-h"><div class="panel-h"><h2 id="ins-h">ใบขอซื้อรอตรวจรับพัสดุ</h2><span class="meta">${xs.length} ใบ ของมาถึงแล้ว คลังบันทึกรับ FM-01 แล้ว</span></div>
+    ${allowed ? '' : `<p class="form-note">ผู้ใช้ตอนนี้ ${esc(short(currentUser().name))} ${esc(currentUser().role)} ดูได้อย่างเดียว ตรวจรับพัสดุได้เฉพาะ${esc(CAN.inspected.join(' หรือ '))} (ผู้ตรวจรับตามคำสั่งแต่งตั้ง)</p>`}
+    ${xs.length ? tableWrap(`<table class="stack-t"><thead><tr><th>เลขที่</th><th>รายการ</th><th class="r">จำนวน</th><th class="r">ยอดเงิน (บาท)</th><th>รับของเมื่อ</th><th>เอกสาร</th><th>ตรวจรับ</th></tr></thead><tbody>
+    ${xs.map(({ r, st }) => { const waited = daysBetween(st.since, S.today); return `<tr><td class="code">${esc(r.pr_no)}<span class="sub-l">${esc(r.po_no)}</span></td><td class="t-name">${itemLink(r.item_code)}<span class="sub-l">${esc(short(supName(r.supplier_id)))}</span></td><td class="r" data-l="จำนวน">${qh(r.item_code, r.qty)}</td><td class="r" data-l="ยอดเงิน"><span class="num">${baht(r.amount)}</span></td>
+      <td class="nowrap" data-l="รับของเมื่อ">${esc(thaiDate(r.received))}<span class="sub-l">รอมา ${waited} วัน</span></td><td class="doc-links" data-l="เอกสาร">${docLinks(r)}</td>
+      <td data-l="ตรวจรับ"><button type="button" class="btn btn-sm${allowed ? ' btn-solid' : ''}" data-act="prStep" data-pr="${esc(r.pr_no)}" data-step="inspected" ${allowed ? '' : 'disabled'}>ตรวจรับพัสดุ</button></td></tr>`; }).join('')}</tbody></table>`, 'ใบขอซื้อรอตรวจรับพัสดุ') : '<p class="empty">ไม่มีใบขอซื้อรอตรวจรับพัสดุ</p>'}
+    <p class="note">ตรวจของจริงเทียบใบสั่งซื้อและบันทึกรับ FM-01 ก่อนกด ผู้ตรวจรับต้องไม่ใช่ผู้ขอซื้อหรือผู้รับของ หลังตรวจรับ ฝ่ายจัดซื้อและคลังขออนุมัติเบิกจ่ายต่อได้</p></section>`;
+}
+
 function stepAction(b) {
   const pr = S.prs.find((r) => r.pr_no === b.dataset.pr);
   const key = b.dataset.step;
@@ -135,7 +149,7 @@ function stepAction(b) {
   if (docs) slip.links = docs.map(([t, type]) => [`พิมพ์${t}`, `#/doc?type=${type}&id=${encodeURIComponent(pr.pr_no)}`]);
   const ev = commit({ type: 'prStep', summary: `${STEP[key].title} ${pr.pr_no} ${it.name}${patch.po_no ? ` ออกใบสั่งซื้อ ${patch.po_no}` : ''}`, effects: fx });
   slip.links = [...(slip.links || []), ['ยกเลิกขั้นนี้ถ้ากดผิด', `#/log?del=${ev.id}`]];
-  showSlip('store', slip);
+  showSlip((location.hash.match(/^#\/([^?]*)/) || [])[1] || 'store', slip);
   nav.route();
 }
 function rejectAction(b) {
@@ -156,7 +170,14 @@ export const buyHandlers = {
     pr: (form) => { const f = new FormData(form); actions.submitNew('pr', { item: codeOf(f.get('item')), supplier: f.get('supplier'), qty: f.get('qty'), unit_cost: f.get('unit_cost'), purpose: String(f.get('purpose') || '').trim() }); },
   },
   change: {
-    prItem: (t) => { const code = codeOf(t.value); if (!S.items.get(code)) return toast('ไม่พบรหัสนี้ เลือกจากรายการที่ขึ้นให้เลือก', 'warn'); setHash('store', { tab: 'buy', new: 1, item: code }); },
+    prItem: (t) => {
+      const code = codeOf(t.value);
+      const it = S.items.get(code);
+      const why = !it ? `ไม่พบรหัส ${code} เลือกจากรายการที่ขึ้นให้เลือก` : !active(it) ? `${it.code} ${it.name} เลิกใช้แล้ว` : it.make !== 'buy' ? `${it.code} ${it.name} ไม่ใช่ของที่ซื้อจากผู้ขาย เขียนใบขอซื้อไม่ได้` : '';
+      t.setAttribute('aria-invalid', why ? 'true' : 'false');
+      if (why) return toast(why, 'warn');
+      setHash('store', { tab: 'buy', new: 1, item: code });
+    },
     prSup: (t) => { const f = t.form; setHash('store', { tab: 'buy', new: 1, item: codeOf(f.item.value), sup: t.value, qty: f.qty.value }); },
   },
 };

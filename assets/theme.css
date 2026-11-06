@@ -668,3 +668,35 @@ td.struck { text-decoration: line-through; text-decoration-color: var(--perf); c
   .bar, .acts, .seg, .toasts, .skip { display: none; }
   body { background: #fff; }
 }
+
+/* ---------- แก้ตามรายงาน QA 2026-11-06: กล่องยืนยัน แถบเตือนที่เก็บ วันหมดอายุ ผลผลิต ---------- */
+.dlg { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 0; border: 0; border-top: 6px solid var(--navy); border-radius: 8px; background: var(--coupon); color: var(--ink); box-shadow: var(--shadow-lift); overflow: auto; }
+.dlg::backdrop { background: rgba(19, 33, 61, .5); }
+.dlg-f { display: grid; gap: 14px; padding: 20px 22px 18px; }
+.dlg h2 { font-size: var(--t-lg); line-height: 1.35; }
+.dlg h2:focus { outline: none; }
+.dlg-b { display: grid; gap: 12px; font-size: var(--t-base); }
+.dlg-b label.f { gap: 6px; font-weight: 600; font-size: var(--t-sm); color: var(--ink-2); }
+.dlg-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; padding: 12px 14px; border: 1px dashed var(--perf); border-radius: 6px; background: var(--ground); }
+.dlg-big { font-size: var(--t-lg); font-weight: 700; color: var(--carbon); letter-spacing: .02em; }
+.dlg-note { font-size: var(--t-sm); color: var(--ink-2); line-height: 1.7; }
+.dlg-yield { padding: 10px 12px; border-radius: 5px; background: var(--ground); font-weight: 600; }
+.dlg-yield.is-ok { background: var(--ok-wash); color: var(--ok); }
+.dlg-yield.is-off { background: var(--warn-wash); color: var(--warn); }
+.dlg-err { padding: 10px 12px; border-radius: 5px; background: var(--crit-wash); color: var(--crit); font-weight: 600; font-size: var(--t-sm); }
+.dlg-a { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; padding-top: 14px; border-top: 1px dashed var(--perf); }
+.sysalert { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 18px; margin: 0 0 16px; padding: 14px 16px; border: 1.5px solid var(--crit); border-left-width: 6px; border-radius: 6px; background: var(--crit-wash); color: var(--ink); }
+.sysalert.is-warn { border-color: var(--warn); background: var(--warn-wash); }
+.sysalert strong { display: block; color: var(--crit); }
+.sysalert.is-warn strong { color: var(--warn); }
+.sysalert p { font-size: var(--t-sm); color: var(--ink-2); line-height: 1.6; margin-top: 2px; }
+.sys-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.exp-th { font-weight: 500; font-size: var(--t-xs); color: var(--muted); line-height: 1.5; }
+.in[aria-invalid="true"] { border-color: var(--crit); box-shadow: 0 0 0 3px var(--crit-wash); }
+@media (max-width: 760px) {
+  .dlg-f { padding: 18px 16px 16px; }
+  .dlg-fields { grid-template-columns: minmax(0, 1fr); }
+  .dlg-a .btn { flex: 1 1 auto; min-height: 44px; }
+  .sys-acts { width: 100%; }
+  .sys-acts .btn { flex: 1 1 auto; }
+}

@@ -54,9 +54,74 @@ function store(get, set) {
   return null;
 }
 
+// ---------- ที่เก็บรายการที่ทดลองกรอก (localStorage) ----------
+// บันทึกไม่สำเร็จต้องไม่เงียบ (QA-008) ข้อมูลเสียต้องไม่ถูกเขียนทับ (QA-009) เปิดหลายแท็บต้องไม่ทับกัน (QA-010)
+export const STORE_CAP = 5000000; // ตัวอักษรโดยประมาณที่เบราว์เซอร์ให้เก็บต่อเว็บ (MDN ราว 5 MiB) ใช้คิดร้อยละที่ใช้ไป
+export class SaveError extends Error { constructor(msg, kind = 'full') { super(msg); this.name = 'SaveError'; this.kind = kind; } }
+// รายการที่ไม่แตะคลัง เลขที่ หรือสถานะ บันทึกต่อท้ายได้แม้อีกแท็บเพิ่งบันทึก
+const INDEPENDENT = new Set(['note', 'noteRead']);
+function readRaw() { try { return localStorage.getItem(KEY); } catch { return null; } }
+function parseEvents(raw) {
+  if (raw === null || raw === undefined || raw === '') return [];
+  try { const a = JSON.parse(raw); return Array.isArray(a) ? a : null; } catch { return null; }
+}
+// ข้อมูลเสียท้ายไฟล์: ตัดรายการท้ายทีละรายการจนอ่านได้ (ลองไม่เกิน 12 ครั้ง)
+function salvage(raw) {
+  let i = raw ? raw.length : 0;
+  for (let k = 0; k < 12 && i > 0; k++) {
+    i = raw.lastIndexOf('},{"id":', i - 1);
+    if (i < 0) break;
+    try { const a = JSON.parse(`${raw.slice(0, i + 1)}]`); if (Array.isArray(a)) return a; } catch { /* ลองตัดอีกรายการ */ }
+  }
+  return [];
+}
+function otherChars() {
+  let n = 0;
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k !== KEY) n += k.length + (localStorage.getItem(k) || '').length; } } catch { /* อ่านไม่ได้ */ }
+  return n;
+}
+// รวมของในเครื่องกับของในแท็บนี้: ของในเครื่องเป็นหลัก (เรียงตามที่บันทึกจริง) ของที่แท็บนี้มีแต่ในเครื่องไม่มีต่อท้าย
+function union(disk, mem) {
+  const ids = new Set(disk.map((e) => e.id));
+  return disk.concat(mem.filter((e) => !ids.has(e.id)));
+}
+export const storeUse = () => (S.store.chars + S.store.other) / STORE_CAP;
+// แท็บอื่นบันทึก: โหลดของใหม่มาคำนวณ แล้วบอกหน้าจอให้วาดใหม่
+const changeListeners = [];
+export function onExternalChange(fn) { changeListeners.push(fn); }
+function watchOtherTabs() {
+  window.addEventListener('storage', (e) => {
+    if (e.key !== KEY && e.key !== null) return;
+    const raw = e.key === null ? readRaw() : e.newValue;
+    const disk = parseEvents(raw);
+    if (disk === null) { S.store.broken = { raw, salvage: salvage(raw) }; changeListeners.forEach((f) => f('broken')); return; }
+    const before = S.events.length;
+    S.events = disk.length ? union(disk, S.events) : [];
+    S.store.chars = raw ? raw.length : 0;
+    S.store.lastRaw = raw;
+    rebuild();
+    changeListeners.forEach((f) => f(S.events.length - before));
+  });
+}
+// ล้างข้อมูลเสียหรือกู้รายการที่อ่านได้ (เก็บสำเนาข้อมูลเดิมไว้ในเครื่องถ้ายังมีที่)
+export function repairStore(useSalvage) {
+  const b = S.store.broken;
+  if (!b) return;
+  try { if (b.raw) localStorage.setItem(`hfd-events-broken-${Date.now()}`, b.raw); } catch { /* ที่เต็ม ผู้ใช้ดาวน์โหลดเก็บแล้ว */ }
+  const keep = useSalvage ? b.salvage : [];
+  const text = JSON.stringify(keep);
+  try { localStorage.setItem(KEY, text); } catch { throw new SaveError('เขียนที่เก็บไม่ได้ ที่เก็บเต็ม ดาวน์โหลดข้อมูลเดิมเก็บไว้ แล้วล้างข้อมูลของเว็บนี้ในเบราว์เซอร์', 'full'); }
+  S.store.broken = null;
+  S.events = keep;
+  S.store.chars = text.length;
+  S.store.lastRaw = text;
+  S.store.other = otherChars();
+  rebuild();
+}
+
 // ---------- สถานะของเว็บ ----------
 export const S = {
-  today: localISO(), shift: 0, meta: null, base: null, orig: null, events: [], user: 'U00',
+  today: localISO(), shift: 0, meta: null, base: null, orig: null, events: [], user: 'U00', store: { broken: null, full: false, chars: 0, other: 0, lastRaw: null },
   items: new Map(), lots: [], lotMap: new Map(), moves: [], pos: [], jobs: [], releases: [], stageOverride: new Map(),
   invoices: [], invoiceLines: [], qcResults: new Map(), prs: [], maint: [], notes: [], noteReads: new Map(), evState: new Map(),
   bom: [], bomVer: new Map(),
@@ -83,7 +148,14 @@ export async function loadAll() {
   for (const [t, cols] of Object.entries(NUM_FIELDS)) for (const r of out[t]) for (const c of cols) if (r[c] !== '' && r[c] !== undefined) r[c] = Number(r[c]);
   S.base = out;
   S.orig = Object.fromEntries(Object.keys(MASTER).map((t) => [t, out[t].map((x) => ({ ...x }))]));
-  S.events = store(KEY) || [];
+  // อ่านรายการที่ทดลองกรอก ถ้าอ่านไม่ได้ ห้ามถือว่าว่างเปล่า (จะเขียนทับของเดิม) ให้หยุดบันทึกและแสดงรายการที่กู้ได้
+  const raw = readRaw();
+  const evs = parseEvents(raw);
+  if (evs === null) { const sv = salvage(raw); S.store.broken = { raw, salvage: sv }; S.events = sv; } else S.events = evs;
+  S.store.chars = raw ? raw.length : 0;
+  S.store.lastRaw = raw;
+  S.store.other = otherChars();
+  watchOtherTabs();
   S.user = store('hfd-user') || 'U00';
   if (!out.staff.some((s) => s.user_id === S.user)) S.user = 'U00';
   rebuild();
@@ -96,14 +168,43 @@ export const active = (row) => !!row && row.active !== 'N';
 export const producing = (it) => active(it) && (it.status || 'ผลิตอยู่') === 'ผลิตอยู่';
 
 // ---------- เหตุการณ์ ----------
+// บันทึกหนึ่งรายการ: เขียนลงเครื่องให้สำเร็จก่อน แล้วจึงนับว่าบันทึกแล้ว ถ้าไม่สำเร็จโยน SaveError (หน้าจอแจ้งผู้ใช้)
 export function commit(event) {
+  if (S.store.broken) throw new SaveError('ข้อมูลที่ทดลองกรอกในเครื่องนี้เสีย ระบบหยุดบันทึกไว้ก่อนเพื่อไม่ให้เขียนทับ ดูทางแก้ที่แถบแดงด้านบน', 'broken');
+  const raw = readRaw();
+  if (raw !== S.store.lastRaw) {
+    // ของในเครื่องไม่ใช่ฉบับที่แท็บนี้เขียนไว้ล่าสุด: แท็บหรือหน้าต่างอื่นเพิ่งบันทึก หรือข้อมูลเสีย
+    const disk = parseEvents(raw);
+    if (disk === null) { S.store.broken = { raw, salvage: salvage(raw) }; throw new SaveError('อ่านข้อมูลในเครื่องไม่ได้ (ข้อมูลเสีย) ระบบหยุดบันทึกเพื่อไม่ให้เขียนทับ ดูทางแก้ที่แถบแดงด้านบน', 'broken'); }
+    const known = new Set(S.events.map((e) => e.id));
+    const fresh = disk.some((e) => !known.has(e.id));
+    S.store.lastRaw = raw;
+    if (fresh) {
+      // โหลดของล่าสุดมาก่อน รายการที่แตะคลังหรือเลขที่ ต้องให้ผู้ใช้ดูหน้าจอใหม่แล้วกดอีกครั้ง
+      S.events = union(disk, S.events);
+      rebuild();
+      if (!INDEPENDENT.has(event.type)) throw new SaveError('มีการบันทึกจากแท็บหรือหน้าต่างอื่นเมื่อสักครู่ ระบบโหลดข้อมูลล่าสุดแล้ว ตรวจหน้าจออีกครั้งแล้วกดบันทึกใหม่', 'stale');
+    }
+  }
   const ev = { id: `E${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, at: new Date().toISOString(), user: S.user, ...event };
-  S.events.push(ev);
-  store(KEY, S.events);
+  const next = S.events.concat(ev);
+  const text = JSON.stringify(next);
+  try { localStorage.setItem(KEY, text); } catch {
+    S.store.full = true;
+    throw new SaveError('บันทึกไม่ได้ ที่เก็บข้อมูลในเบราว์เซอร์เต็ม รายการนี้ยังไม่ถูกบันทึก ให้หัวหน้ากลุ่มงานส่งออกประวัติเก็บไว้ แล้วล้างข้อมูลทดลอง', 'full');
+  }
+  S.store.full = false;
+  S.store.chars = text.length;
+  S.store.lastRaw = text;
+  S.events = next;
   rebuild();
   return ev;
 }
-export function resetEvents() { S.events = []; store(KEY, []); rebuild(); }
+export function resetEvents() {
+  try { localStorage.setItem(KEY, '[]'); } catch { throw new SaveError('ล้างข้อมูลไม่ได้ เบราว์เซอร์ไม่ให้เขียนที่เก็บ', 'full'); }
+  S.events = []; S.store.full = false; S.store.broken = null; S.store.chars = 2; S.store.lastRaw = '[]'; S.store.other = otherChars(); rebuild();
+}
+export const eventsJSON = () => JSON.stringify(S.events);
 export const eventById = (id) => S.events.find((e) => e.id === id);
 
 // สถานะของแต่ละรายการ: ใช้อยู่ / แก้ไขแล้ว (มีฉบับใหม่) / ลบแล้ว
@@ -587,19 +688,20 @@ function buildAlerts() {
     if (x.calLeft !== null && x.calLeft <= CONFIG.calWarnDays) push(x.calLeft < 0 ? 'crit' : 'warn', x.calLeft < 0 ? 'เกินกำหนดสอบเทียบ' : 'ใกล้สอบเทียบ', x.calLeft < 0 ? 'เกินกำหนดมาแล้ว' : 'ครบสอบเทียบใน', Math.abs(x.calLeft), `${x.a.name} ${x.calLeft < 0 ? `เกินกำหนดสอบเทียบ ${-x.calLeft} วัน` : (x.calLeft === 0 ? 'ครบกำหนดสอบเทียบวันนี้' : `ครบกำหนดสอบเทียบใน ${x.calLeft} วัน`)}`);
     if (x.pmLeft !== null && x.pmLeft <= CONFIG.pmWarnDays && x.a.status === 'ใช้งาน') push(x.pmLeft < 0 ? 'crit' : 'warn', x.pmLeft < 0 ? 'เกินกำหนดบำรุงรักษา' : 'ใกล้บำรุงรักษา', x.pmLeft < 0 ? 'เกินกำหนดมาแล้ว' : 'ครบบำรุงรักษาใน', Math.abs(x.pmLeft), `${x.a.name} ${x.pmLeft < 0 ? `เกินกำหนดบำรุงรักษา ${-x.pmLeft} วัน` : (x.pmLeft === 0 ? 'ครบกำหนดบำรุงรักษาวันนี้' : `ครบกำหนดบำรุงรักษาใน ${x.pmLeft} วัน`)}`);
   }
-  // ใบขอซื้อรอเห็นชอบหรือรออนุมัติ
-  for (const stKey of ['head_ok', 'dir_ok']) {
+  // ใบขอซื้อรอเห็นชอบ รออนุมัติ หรือรอตรวจรับพัสดุ (ขั้นตรวจรับขึ้นในห้องฝ่ายผลิต ซึ่งผู้ตรวจรับเข้าได้ QA-001)
+  for (const stKey of ['head_ok', 'dir_ok', 'inspected']) {
     const xs = D.prOpen.filter((x) => x.st.key === stKey);
     if (!xs.length) continue;
     const oldest = Math.max(...xs.map((x) => daysBetween(x.st.since, S.today)));
     const step = PROC_STEPS.find((s) => s.key === stKey);
+    const ins = stKey === 'inspected';
     A.push({
-      level: 'warn', kind: 'proc', rooms: ['store'],
+      level: 'warn', kind: 'proc', rooms: ins ? ['prod'] : ['store'],
       title: `ใบขอซื้อรอ${step.title} ${xs.length} ใบ`,
-      stamp: stKey === 'head_ok' ? 'รอเห็นชอบ' : 'รออนุมัติ',
+      stamp: stKey === 'head_ok' ? 'รอเห็นชอบ' : stKey === 'dir_ok' ? 'รออนุมัติ' : 'รอตรวจรับ',
       stub: { k: 'รอ', n: String(xs.length), u: 'ใบ', ref: '' },
       fields: [['ขั้นตอน', step.title], ['ผู้ทำขั้นนี้', step.who], ['รอนานสุด', `${oldest} วัน`], ['ยอดรวม', thb(xs.reduce((t, x) => t + x.r.amount, 0))]],
-      detail: `${xs.length} ใบ รอนานสุด ${oldest} วัน`, actionText: 'เปิดรายการจัดซื้อ', go: `store?tab=buy&step=${stKey}`, sort: 1 / (oldest + 1),
+      detail: `${xs.length} ใบ รอนานสุด ${oldest} วัน`, actionText: ins ? 'ไปตรวจรับพัสดุ' : 'เปิดรายการจัดซื้อ', go: ins ? 'prod?tab=inspect' : `store?tab=buy&step=${stKey}`, sort: 1 / (oldest + 1),
     });
   }
   // เรียงวิกฤตก่อน แล้วเรื่องที่หยุดสายการผลิตก่อนเรื่องเงิน

@@ -139,8 +139,12 @@ await sleep(400);
 await setUser('U05');
 await go(`qc?lot=${newLot}`);
 await ev(`document.querySelector('[data-act="release"][data-lot="${newLot}"][data-res="ผ่าน"]').click(); true`);
+await sleep(300);
+// ปล่อยผ่านต้องถามยืนยันพร้อมเลขที่และชื่อรายการก่อน (QA-018)
+const dlg = await ev(`(() => { const d = document.querySelector('dialog.dlg[open]'); return d ? d.textContent.includes('${newLot}') : false; })()`);
+await ev(`document.querySelector('dialog.dlg[open] [data-dlg="ok"]')?.click(); true`);
 await sleep(400);
-check('หัวหน้าฝ่ายควบคุมคุณภาพปล่อยผ่านหลังเจ้าหน้าที่บันทึกผล ตราตรวจสอบแล้วประทับลงสำเนา', (await text('.slip .stamp')) === 'ตรวจสอบแล้ว' && (await count(`[data-act="release"][data-lot="${newLot}"]`)) === 0);
+check('หัวหน้าฝ่ายควบคุมคุณภาพปล่อยผ่านหลังเจ้าหน้าที่บันทึกผล ถามยืนยันพร้อมเลขที่ก่อน ตราตรวจสอบแล้วประทับลงสำเนา', dlg && (await text('.slip .stamp')) === 'ตรวจสอบแล้ว' && (await count(`[data-act="release"][data-lot="${newLot}"]`)) === 0);
 await setUser('U03');
 await go('prod');
 const blockedJob = await ev(`(() => { const c = [...document.querySelectorAll('.kcard')].find((x) => (x.querySelector('.k-block')?.textContent || '').includes('หลอด')); return c ? c.dataset.job : ''; })()`);
