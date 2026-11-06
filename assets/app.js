@@ -394,7 +394,7 @@ function itemStatus(s) {
 function viewStore(p) {
   const alerts = roomAlerts('store');
   const tab = p.get('tab') || 'stock';
-  const acts = `<a class="btn" href="#/store?tab=issue">เบิกออก</a><a class="btn" href="#/store?tab=buy&new=1">เขียนใบขอซื้อ</a><a class="btn${tab === 'receive' ? '' : ' btn-solid'}" href="#/store?tab=receive">รับเข้า FM-01</a>`;
+  const acts = `<a class="btn" href="#/store?tab=issue">เบิกออก</a><a class="btn" href="#/store?tab=buy&new=1">เขียนใบขอซื้อ</a><a class="btn${['receive', 'issue'].includes(tab) || (tab === 'buy' && p.get('new')) ? '' : ' btn-solid'}" href="#/store?tab=receive">รับเข้า FM-01</a>`;
   const tabs = [['stock', 'คงคลัง'], ['card', 'บัตรคุม FM-02'], ['receive', 'รับเข้า FM-01'], ['issue', 'เบิกออก'], ['buy', 'จัดซื้อ'], ['plan', 'พยากรณ์และแผน']];
   let body;
   if (tab === 'card') body = stockCard(p);

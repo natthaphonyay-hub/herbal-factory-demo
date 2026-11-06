@@ -81,13 +81,14 @@ function prForm(p) {
 }
 
 // ปุ่มของขั้นถัดไป ตามบทบาทผู้ใช้ตอนนี้
+// ปุ่มในแถวของตารางเป็นปุ่มรอง ปุ่มหลักสีกรมท่ามีที่เดียวต่อหน้า (ตรวจความเรียบร้อย ข้อ 27)
 function nextAction(r, st) {
   if (st.key === 'done' || st.key === 'rejected') return '';
   const allowed = can(st.key);
-  if (st.key === 'received') return `<a class="btn btn-sm${allowed ? ' btn-solid' : ''}" href="#/store?tab=receive&item=${r.item_code}&po=${encodeURIComponent(r.po_no)}">รับของ FM-01</a>`;
+  if (st.key === 'received') return `<a class="btn btn-sm" href="#/store?tab=receive&item=${r.item_code}&po=${encodeURIComponent(r.po_no)}">รับของ FM-01</a>`;
   const label = { head_ok: 'เห็นชอบ', dir_ok: 'อนุมัติ', ordered: 'ออกใบสั่งซื้อ', inspected: 'ตรวจรับพัสดุ', pay_requested: 'ขออนุมัติเบิกจ่าย', paid: 'บันทึกจ่ายเงินแล้ว', requested: 'ส่งขออนุมัติ' }[st.key];
   const reject = ['head_ok', 'dir_ok'].includes(st.key) && allowed ? `<button type="button" class="btn btn-sm btn-crit" data-act="prReject" data-pr="${esc(r.pr_no)}">ไม่อนุมัติ</button>` : '';
-  return allowed ? `<button type="button" class="btn btn-sm btn-solid" data-act="prStep" data-pr="${esc(r.pr_no)}" data-step="${st.key}">${esc(label)}</button>${reject}` : `<span class="sub-l">รอ ${esc(roleAbbr(STEP[st.key].who))}${st.key === 'inspected' ? ' (ทำในห้องฝ่ายผลิต แท็บตรวจรับพัสดุ)' : ''}</span>`;
+  return allowed ? `<button type="button" class="btn btn-sm" data-act="prStep" data-pr="${esc(r.pr_no)}" data-step="${st.key}">${esc(label)}</button>${reject}` : `<span class="sub-l">รอ ${esc(roleAbbr(STEP[st.key].who))}${st.key === 'inspected' ? ' (ทำในห้องฝ่ายผลิต แท็บตรวจรับพัสดุ)' : ''}</span>`;
 }
 
 export function viewBuy(p) {
@@ -135,7 +136,7 @@ export function viewInspect() {
     ${xs.length ? tableWrap(`<table class="stack-t"><thead><tr><th>เลขที่</th><th>รายการ</th><th class="r">จำนวน</th><th class="r">ยอดเงิน (บาท)</th><th>รับของเมื่อ</th><th>เอกสาร</th><th>ตรวจรับ</th></tr></thead><tbody>
     ${xs.map(({ r, st }) => { const waited = daysBetween(st.since, S.today); return `<tr><td class="code">${esc(r.pr_no)}<span class="sub-l">${esc(r.po_no)}</span></td><td class="t-name">${itemLink(r.item_code)}<span class="sub-l">${esc(short(supName(r.supplier_id)))}</span></td><td class="r" data-l="จำนวน">${qh(r.item_code, r.qty)}</td><td class="r" data-l="ยอดเงิน"><span class="num">${baht(r.amount)}</span></td>
       <td class="nowrap" data-l="รับของเมื่อ">${esc(thaiDate(r.received))}<span class="sub-l">รอมา ${waited} วัน</span></td><td data-l="เอกสาร"><div class="doc-links">${docLinks(r)}</div></td>
-      <td data-l="ตรวจรับ"><button type="button" class="btn btn-sm${allowed ? ' btn-solid' : ''}" data-act="prStep" data-pr="${esc(r.pr_no)}" data-step="inspected" ${allowed ? '' : 'disabled'}>ตรวจรับพัสดุ</button></td></tr>`; }).join('')}</tbody></table>`, 'ใบขอซื้อรอตรวจรับพัสดุ') : '<p class="empty">ไม่มีใบขอซื้อรอตรวจรับพัสดุ</p>'}
+      <td data-l="ตรวจรับ"><button type="button" class="btn btn-sm" data-act="prStep" data-pr="${esc(r.pr_no)}" data-step="inspected" ${allowed ? '' : 'disabled'}>ตรวจรับพัสดุ</button></td></tr>`; }).join('')}</tbody></table>`, 'ใบขอซื้อรอตรวจรับพัสดุ') : '<p class="empty">ไม่มีใบขอซื้อรอตรวจรับพัสดุ</p>'}
     <p class="note">ตรวจของจริงเทียบใบสั่งซื้อและบันทึกรับ FM-01 ก่อนกด ผู้ตรวจรับต้องไม่ใช่ผู้ขอซื้อหรือผู้รับของ หลังตรวจรับ ฝ่ายจัดซื้อและคลังขออนุมัติเบิกจ่ายต่อได้</p></section>`;
 }
 
