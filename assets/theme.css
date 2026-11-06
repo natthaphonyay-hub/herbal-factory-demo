@@ -15,6 +15,7 @@
   --rule: #C7D0DD;
   --rule-2: #E1E6EE;
   --perf: #98A5B9;
+  --field: #788499;
   --carbon: #5B3FA8;
   --carbon-soft: #E4DCF5;
   --crit: #C62F2F;
@@ -39,7 +40,7 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: 104px; }
 body {
   margin: 0;
   background: var(--ground);
@@ -56,6 +57,10 @@ ul, ol { padding: 0; list-style: none; }
 a { color: var(--navy); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 a:hover { color: var(--carbon); }
 :focus-visible { outline: 2px solid var(--carbon); outline-offset: 2px; border-radius: 3px; }
+/* บนแถบกรมท่า กรอบม่วงชัดไม่พอ (1.82:1) ใช้ขาว แท็บในแถบเลื่อนวาดกรอบด้านใน ไม่ให้ขอบแถบตัด */
+.bar :focus-visible { outline-color: #fff; }
+.bar-tabs .tab:focus-visible { outline-offset: -4px; }
+.bar-tabs .tab[aria-current="page"]:focus-visible { outline-color: var(--carbon); }
 main:focus, main:focus-visible { outline: none; }
 button, input, select, textarea { font: inherit; color: inherit; }
 .ic { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -63,7 +68,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .skip { position: absolute; left: 12px; top: -48px; z-index: 50; background: var(--coupon); color: var(--navy); padding: 8px 14px; border-radius: var(--r); font-weight: 600; }
 .skip:focus { top: 8px; }
 .num { font-family: var(--font); font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: 0; }
-.mono { font-family: var(--mono); letter-spacing: 0; }
+.mono { font-family: var(--mono); letter-spacing: 0; white-space: nowrap; }
 .muted { color: var(--muted); }
 .loading { padding: 40px 0; color: var(--muted); }
 
@@ -122,10 +127,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn-ico[disabled] { opacity: .35; cursor: not-allowed; }
 
 label.f { display: flex; flex-direction: column; gap: 4px; font-size: var(--t-xs); color: var(--muted); font-weight: 500; }
-.in, select.in, input.in { height: 40px; padding: 0 10px; border: 1px solid var(--rule); border-radius: 5px; background: var(--coupon); color: var(--ink); font-size: var(--t-base); min-width: 0; width: 100%; transition: border-color .16s ease, box-shadow .16s ease; }
-.in:hover { border-color: var(--perf); }
+.in, select.in, input.in { height: 40px; padding: 0 10px; border: 1px solid var(--field); border-radius: 5px; background: var(--coupon); color: var(--ink); font-size: var(--t-base); min-width: 0; width: 100%; transition: border-color .16s ease, box-shadow .16s ease; }
+.in:hover { border-color: var(--ink-2); }
 .in:focus { outline: none; border-color: var(--carbon); box-shadow: 0 0 0 3px rgba(91, 63, 168, .18); }
-.in::placeholder { color: #6F7890; }
+.in::placeholder { color: var(--muted); opacity: 1; }
+/* ช่องที่ยังกรอกไม่ได้ ต้องดูต่างจากช่องปกติ */
+.in:disabled, .in:disabled:hover { background: var(--ground); color: var(--muted); border-style: dashed; border-color: var(--perf); cursor: not-allowed; }
 .in.num { font-size: var(--t-sm); color: var(--carbon); }
 
 /* ---------- คูปองแจ้งเตือน ---------- */
@@ -229,6 +236,7 @@ tr.row-new { background: #F4F0FC; }
 .u { margin-left: 4px; font-family: var(--font); font-size: var(--t-xs); color: var(--muted); font-weight: 500; }
 .table-wrap .num, .mini .num, .fields .num { color: var(--carbon); }
 .r { text-align: right; }
+td.t-name { min-width: 12em; }
 td.num, th.num { text-align: right; white-space: nowrap; }
 td.num { color: var(--carbon); font-size: var(--t-sm); }
 td.code { font-family: var(--mono); font-size: 13px; color: var(--ink-2); white-space: nowrap; }
@@ -299,6 +307,7 @@ td .sub-l { display: block; font-size: var(--t-xs); color: var(--muted); }
 .kcard.is-target { box-shadow: 0 0 0 2px var(--carbon), var(--shadow-lift); }
 .kcard.is-blocked { outline: 2px dashed var(--crit); outline-offset: 2px; animation: blink-outline 1.1s steps(2, jump-none) infinite; }
 @keyframes blink-outline { 50% { outline-color: rgba(198, 47, 47, .2); } }
+.kcard.is-blocked:focus-within { animation: none; }
 .k-top { display: flex; justify-content: space-between; gap: 6px; font-size: 11px; color: var(--muted); }
 .k-top .mono { color: var(--navy); }
 .k-t { font-weight: 700; color: var(--ink); line-height: 1.4; font-size: var(--t-sm); }
@@ -412,7 +421,8 @@ td .sub-l { display: block; font-size: var(--t-xs); color: var(--muted); }
 @media (max-width: 760px) {
   .bar-top { padding: 0 16px; height: 50px; }
   .bar-tabs { padding: 0 12px; }
-  .who-l, .brand-t span { display: none; }
+  .brand-t span { display: none; }
+  .who-l { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .brand-t strong { white-space: nowrap; }
   .mock { padding: 0 6px; }
   #user { max-width: 168px; }
@@ -451,7 +461,7 @@ td .sub-l { display: block; font-size: var(--t-xs); color: var(--muted); }
 .legend i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .k-act { flex-wrap: wrap; }
 .k-move { display: flex; justify-content: flex-end; gap: 4px; }
-.kcol-b { display: grid; gap: 8px; max-height: 560px; overflow-y: auto; padding: 2px; scrollbar-width: thin; }
+.kcol-b { display: grid; gap: 8px; max-height: 560px; overflow-y: auto; padding: 6px; margin: -4px; scrollbar-width: thin; }
 .count-ink { background: var(--carbon); }
 .inline-form { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .in-sm { height: 34px; font-size: var(--t-sm); width: auto; min-width: 0; max-width: 220px; }
@@ -599,6 +609,30 @@ td.struck { text-decoration: line-through; text-decoration-color: var(--perf); c
   .kcol.is-empty { flex-direction: row; align-items: center; padding: 8px 10px; }
   .kcol.is-empty .kcol-h { flex: 1; }
   .kcol.is-empty .kcol-s, .kcol.is-empty .kcol-b { display: none; }
+}
+/* จอแท็บเล็ตลงไป: คิวรอปล่อยผ่านเรียงเป็นแผ่นต่อล็อต ชื่อและปุ่มอยู่ในจอเสมอ (ตรวจความเรียบร้อย ข้อ 1) */
+@media (max-width: 1100px) {
+  .qc-t thead { display: none; }
+  .qc-t, .qc-t tbody { display: block; }
+  .qc-t tr { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; padding: 12px 0; border-bottom: 1px solid var(--rule-2); }
+  .qc-t td { display: block; padding: 0; border: 0; text-align: left; min-width: 0; }
+  .qc-t td[data-l]::before { content: attr(data-l); display: block; font-size: 12px; font-weight: 500; color: var(--muted); line-height: 1.4; margin-bottom: 2px; }
+  .qc-t td.empty { grid-column: 1 / -1; }
+  .qc-t td:nth-child(2) { grid-column: 2 / -1; align-self: center; }
+  .qc-t .t-name, .qc-t .t-wide { grid-column: 1 / -1; }
+  .qc-t .t-name { font-weight: 600; }
+}
+@media (max-width: 760px) {
+  .stack-t:not(.qc-t):not(.sim-t) tr { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stack-t td.t-name { min-width: 0; }
+  .stack-t td.code { align-self: center; }
+  .stack-t td.nowrap { white-space: normal; }
+  .stack-t td:has(.btn, .inline-form, .doc-links, .row-acts) { grid-column: 1 / -1; }
+  .st-t td:last-child { grid-row: 1; grid-column: 2 / -1; justify-self: end; align-self: center; }
+  .st-t td:last-child::before { display: none; }
+}
+@media (max-width: 480px) {
+  .brand-t { display: none; }
 }
 /* ช่องไฟระหว่างกล่องเดี่ยวกับแถวสองคอลัมน์ ที่วางต่อกันในหน้า */
 .work + .panel, .panel + .work, .work + .work { margin-top: 16px; }

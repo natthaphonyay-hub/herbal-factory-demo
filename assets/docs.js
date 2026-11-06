@@ -80,7 +80,7 @@ function picker(type) {
 function docList() {
   return head('เอกสาร', [], '', 'ข้อมูลที่กรอกในระบบครั้งเดียว ออกเป็นแบบฟอร์มพร้อมพิมพ์หรือบันทึกเป็น PDF ไม่ต้องกรอกซ้ำ') + `<div class="doc-groups">${TYPES.map(([g, xs]) => `<section class="panel" aria-labelledby="dg-${esc(g)}"><div class="panel-h"><h2 id="dg-${esc(g)}">${esc(g)}</h2></div>
     <ul class="doc-list">${xs.map(([k, t, hint]) => `<li><form data-form="docOpen" data-type="${k}" class="doc-row"><span class="t">${I.doc}${esc(t)}${hint ? `<span class="d">${esc(hint)}</span>` : ''}</span><span class="inline-form">${picker(k)}<button class="btn btn-sm" type="submit">เปิด</button></span></form></li>`).join('')}</ul></section>`).join('')}</div>
-    <p class="note">ช่องที่ระบบไม่มีข้อมูล เช่น ที่อยู่ผู้ขาย เกรดสมุนไพร หรือลายมือชื่อ เว้นว่างไว้ให้เขียนเอง หัวเอกสารใช้ชื่อหน่วยงานสมมุติ แก้เป็นชื่อจริงได้ที่ assets/config.js เมื่อใช้ภายในหน่วยงาน</p>`;
+    <p class="note">ช่องที่ระบบไม่มีข้อมูล เช่น ที่อยู่ผู้ขาย เกรดสมุนไพร หรือลายมือชื่อ เว้นว่างไว้ให้เขียนเอง หัวเอกสารใช้ชื่อหน่วยงานสมมุติ เปลี่ยนเป็นชื่อจริงได้เมื่อใช้ภายในหน่วยงาน</p>`;
 }
 
 // ---------- แบบฟอร์มแต่ละชนิด ----------

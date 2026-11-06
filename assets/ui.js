@@ -171,7 +171,7 @@ export function slipBlock(room) {
   const s = slipState.slip;
   if (!s || s.room !== room) return '';
   const { o } = s;
-  return `<section class="slip" aria-label="${esc(o.k)}">
+  return `<section class="slip" aria-label="${esc(o.k)}" tabindex="-1">
     <div><div class="slip-k">${esc(o.k)}</div><div class="slip-no">${esc(o.no)}</div></div>
     <div class="slip-main"><div class="t">${esc(o.title)}</div>${(o.lines || []).map((l) => `<div class="d">${esc(l)}</div>`).join('')}
       ${o.links ? `<div class="slip-links">${o.links.map(([t, href]) => `<a href="${href}">${I.doc}${esc(t)}</a>`).join('')}</div>` : ''}</div>

@@ -9,7 +9,7 @@ import { fefoPick } from './logic.js';
 import {
   $, esc, num, qn, qty, qh, money, baht, mill, short, I, svg, chip, lotChip, stamp, tableWrap, supName, custName, who, deptLegend,
   toast, download, can, deny, roleNote, nav, setHash, slipState, showSlip, slipBlock, head, alertsBlock, seg, itemPicker, codeOf, monthLabel, actions, itemLink, jobLink, jobHref,
-  openDialog, closeDialog, storeBanner, backBar,
+  openDialog, closeDialog, storeBanner, backBar, roleAbbr,
 } from './ui.js';
 import { viewBuy, buyHandlers, buildPR, viewInspect, inspectQueue } from './buy.js';
 import { viewPlan } from './plan.js';
@@ -162,8 +162,18 @@ function kcard(c, canMove, target) {
     <div class="k-q"><span>จำนวน</span><span>${qh(c.it.code, c.job.qty)}</span></div>
     ${c.blocked ? `<div class="k-block">หยุด รอ${esc(c.blocked)}</div>` : ''}
     <div class="k-act">${who(c.owner)}<span class="days${late ? ' warn' : ''}">${c.days} วัน</span></div>
-    ${canMove ? `<div class="k-move"><button type="button" class="btn-ico" data-act="move" data-job="${esc(c.job.job_id)}" data-dir="-1" ${idx <= 0 ? 'disabled' : ''} aria-label="ย้อน ${esc(c.job.job_id)} ไปขั้นก่อนหน้า">${I.left}</button><button type="button" class="btn-ico" data-act="move" data-job="${esc(c.job.job_id)}" data-dir="1" ${idx >= L.stages.length - 1 ? 'disabled' : ''} aria-label="ย้าย ${esc(c.job.job_id)} ไปขั้นถัดไป">${I.right}</button></div>` : ''}
+    ${canMove ? moveButtons(c, idx, L) : ''}
   </article>`;
+}
+// ปุ่มย้ายการ์ด: ขั้นที่ย้ายจากบอร์ดไม่ได้ (เข้าหรือออกจากขั้นของฝ่ายควบคุมคุณภาพ) ปิดปุ่มและบอกเหตุผลไว้ ไม่ปล่อยให้กดแล้วค่อยเตือน
+function moveButtons(c, idx, L) {
+  const id = c.job.job_id;
+  const b = (dir, icon, label, end) => {
+    const why = end ? '' : (moveCheck(id, dir).error || '');
+    return `<button type="button" class="btn-ico" data-act="move" data-job="${esc(id)}" data-dir="${dir}" ${end || why ? 'disabled' : ''}${why ? ` title="${esc(why)}"` : ''} aria-label="${label}">${icon}</button>`;
+  };
+  const why = [moveCheck(id, -1).error, moveCheck(id, 1).error].filter((w) => w && w !== 'ย้ายต่อไม่ได้แล้ว')[0] || '';
+  return `<div class="k-move"${why ? ` title="${esc(why)}"` : ''}>${b(-1, I.left, `ย้อน ${esc(id)} ไปขั้นก่อนหน้า`, idx <= 0)}${b(1, I.right, `ย้าย ${esc(id)} ไปขั้นถัดไป`, idx >= L.stages.length - 1)}</div>`;
 }
 function laneBoard(laneKey, p, allowMove = true) {
   const L = LANES[laneKey];
@@ -221,7 +231,7 @@ function askOutput({ card }) {
   const rule = yieldRule(it);
   const intU = isIntUnit(it.unit);
   const body = `<dl class="fields dlg-fields"><div><dt>งาน</dt><dd class="mono">${esc(job.job_id)}</dd></div><div><dt>รายการ</dt><dd><strong>${esc(it.name)}</strong></dd></div>
-      <div><dt>สั่ง${job.lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป'}</dt><dd>${qh(it.code, job.qty)}</dd></div><div><dt>เกณฑ์ผลผลิต</dt><dd>ไม่ต่ำกว่า ${num(rule.min)}%<span class="sub-l">${isFG(it) ? `สูญเสียผลิต ${num(it.loss_pct ?? 5)}% บรรจุ ${num(it.pack_loss_pct ?? 1)}% (FM-35)` : 'ค่าตั้งต้นงานแปรรูป รอเคาะเกณฑ์'}</span></dd></div></dl>
+      <div><dt>สั่ง${job.lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป'}</dt><dd>${qh(it.code, job.qty)}</dd></div><div><dt>เกณฑ์ผลผลิต</dt><dd>ไม่ต่ำกว่า ${num(rule.min)}%<span class="sub-l">${isFG(it) ? `สูญเสียผลิต ${num(it.loss_pct ?? 5)}% บรรจุ ${num(it.pack_loss_pct ?? 1)}% (FM-35)` : 'ค่าตั้งต้นงานแปรรูป รอหัวหน้ากลุ่มงานกำหนด'}</span></dd></div></dl>
     <label class="f">จำนวนที่ได้จริง (${esc(it.unit)}) นับหรือชั่งจริง<input class="in" name="actual" type="number" min="0" step="${intU ? '1' : 'any'}" required autofocus placeholder="สั่ง${job.lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป'} ${esc(qn(it.code, job.qty))}"></label>
     <p class="dlg-yield" data-out="yield" aria-live="polite">กรอกจำนวนที่ได้จริง ระบบคิดร้อยละผลผลิตให้</p>
     <label class="f" data-yield-note hidden>เหตุผลที่ผลผลิตเบี่ยงเบนจากเกณฑ์ (ต้องกรอก บันทึกเพื่อสอบสวน)<input class="in" name="note" maxlength="300" placeholder="เช่น ผงติดเครื่องบด ชั่งซ้ำแล้ว"></label>
@@ -415,8 +425,8 @@ function storeStock(p) {
     <div class="filters" aria-label="กรองตามสถานะและค้นหา">${lvChips}
       <form class="search" data-form="filter" role="search"><label class="sr" for="q">ค้นหารายการหรือรหัส</label><input class="in" id="q" name="q" value="${esc(qRaw)}" placeholder="ค้นชื่อหรือรหัส"><input type="hidden" name="kind" value="${esc(kind)}"><input type="hidden" name="lv" value="${esc(lv)}"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form>
       <button type="button" class="btn btn-sm" data-act="export">${I.download}ส่งออก CSV</button></div>
-    ${tableWrap(`<table><thead><tr><th>รหัส</th><th>รายการ</th><th class="r">ตรวจสอบแล้ว</th><th class="r">ใช้ต่อวัน</th><th class="r">พอใช้</th><th class="r">จำนวนอย่างต่ำ</th><th class="r">ค้างรับ ค้างผลิต</th><th>สถานะ</th></tr></thead><tbody>
-    ${shown.map(({ s, stt }) => `<tr><td class="code">${s.it.code}</td><td>${itemLink(s.it)}${s.quarantine ? `<span class="sub-l">รอปล่อยผ่าน ${esc(qty(s.it.code, s.quarantine))}</span>` : ''}</td>
+    ${tableWrap(`<table class="stack-t st-t"><thead><tr><th>รหัส</th><th>รายการ</th><th class="r">ตรวจสอบแล้ว</th><th class="r">ใช้ต่อวัน</th><th class="r">พอใช้</th><th class="r">จำนวนอย่างต่ำ</th><th class="r">ค้างรับ ค้างผลิต</th><th>สถานะ</th></tr></thead><tbody>
+    ${shown.map(({ s, stt }) => `<tr><td class="code">${s.it.code}</td><td class="t-name">${itemLink(s.it)}${s.quarantine ? `<span class="sub-l">รอปล่อยผ่าน ${esc(qty(s.it.code, s.quarantine))}</span>` : ''}</td>
       <td class="r">${qh(s.it.code, s.released)}${s.reserved ? `<span class="sub-l">จองให้งาน ${esc(qty(s.it.code, s.reserved))}</span>` : ''}</td><td class="r"><span class="num">${num(s.u.mean, 1)}</span></td><td class="r">${Number.isFinite(s.cover) ? `<span class="num">${num(Math.floor(s.cover))}</span><span class="u">วัน</span>` : '<span class="muted">-</span>'}</td>
       <td class="r"><span class="num">${num(s.pol.rop)}</span></td><td class="r">${s.onOrder ? `<span class="num">${num(s.onOrder)}</span>` : '<span class="muted">-</span>'}</td><td>${chip(stt.t, stt.lv)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">ไม่พบรายการตามที่กรอง ลองล้างตัวกรอง</td></tr>'}
     </tbody></table>`, 'คงคลังของฝ่าย')}
@@ -535,7 +545,7 @@ function qcQueue(p) {
   const whoNote = isHead ? 'หัวหน้าฝ่ายควบคุมคุณภาพ อนุมัติปล่อยผ่านหรือไม่ผ่านได้ หลังเจ้าหน้าที่บันทึกผลตรวจ' : isChecker ? 'เจ้าหน้าที่ฝ่ายควบคุมคุณภาพ บันทึกผลตรวจได้ การอนุมัติเป็นของหัวหน้าฝ่าย' : 'ดูได้อย่างเดียว';
   const resultCell = (q) => {
     if (q.result) return `${chip(q.result.result, q.result.result === 'ผ่านเกณฑ์' ? 'ok' : 'crit')}<span class="sub-l">${esc(short(staff(q.result.checker_id).name))} ${esc(thaiDate(q.result.date))} ${esc(q.result.note || '')}</span>`;
-    if (isChecker) return `<form data-form="qc" data-lot="${esc(q.lot.lot_no)}" class="inline-form"><label class="sr" for="qr-${esc(q.lot.lot_no)}">ผลตรวจ ${esc(q.lot.lot_no)}</label><select class="in in-sm" id="qr-${esc(q.lot.lot_no)}" name="result"><option>ผ่านเกณฑ์</option><option>ไม่ผ่านเกณฑ์</option></select><label class="sr" for="qn-${esc(q.lot.lot_no)}">หมายเหตุ ${esc(q.lot.lot_no)}</label><input class="in in-sm" id="qn-${esc(q.lot.lot_no)}" name="note" placeholder="หมายเหตุ เช่น ความชื้น 8%"><button type="submit" class="btn btn-sm">บันทึกผล</button></form>`;
+    if (isChecker) return `<form data-form="qc" data-lot="${esc(q.lot.lot_no)}" class="inline-form"><label class="sr" for="qr-${esc(q.lot.lot_no)}">ผลตรวจ ${esc(q.lot.lot_no)}</label><select class="in in-sm" id="qr-${esc(q.lot.lot_no)}" name="result" required><option value="" selected>เลือกผลตรวจ</option><option>ผ่านเกณฑ์</option><option>ไม่ผ่านเกณฑ์</option></select><label class="sr" for="qn-${esc(q.lot.lot_no)}">หมายเหตุ ${esc(q.lot.lot_no)}</label><input class="in in-sm" id="qn-${esc(q.lot.lot_no)}" name="note" placeholder="หมายเหตุ เช่น ความชื้น 8%"><button type="submit" class="btn btn-sm">บันทึกผล</button></form>`;
     return '<span class="muted">รอเจ้าหน้าที่บันทึกผลตรวจ</span>';
   };
   const decideCell = (q) => {
@@ -647,8 +657,8 @@ function arTab(p, ar) {
   const arLink = (o) => { const x = new URLSearchParams({ tab: 'ar', ...o }); for (const [k, v] of [...x]) if (!v) x.delete(k); return `#/sales?${x}`; };
   const canPay = can('payment');
   return `<div class="work"><section class="panel" aria-labelledby="cu-h"><div class="panel-h"><h2 id="cu-h">ขายให้ใคร ค้างเท่าไร</h2><span class="meta">กดชื่อลูกค้าเพื่อดูใบค้าง</span></div>
-    ${tableWrap(`<table><thead><tr><th>ลูกค้า</th><th class="r">เครดิต</th><th class="r">ยอดขาย 12 เดือน</th><th class="r">ค้างชำระ</th><th class="r">เกินกำหนด</th><th class="r">ใบเก่าสุด</th></tr></thead><tbody>
-    ${rows.map((x) => `<tr${cust === x.c.customer_id ? ' class="is-target" data-target' : ''}><td><a href="#/sales?tab=ar&cust=${x.c.customer_id}">${esc(x.c.name)}</a><span class="sub-l">${esc(x.c.type)}${active(x.c) ? '' : ' เลิกใช้'}</span></td><td class="r"><span class="num">${x.c.credit_days}</span><span class="u">วัน</span></td><td class="r"><span class="num">${num(x.sales)}</span></td><td class="r"><span class="num"><b>${num(x.out)}</b></span></td><td class="r">${x.over ? `<span class="num" style="color:var(--crit)">${num(x.over)}</span>` : '<span class="muted">-</span>'}</td><td class="r">${x.oldest ? `<span class="num">${x.oldest}</span><span class="u">วัน</span>` : '-'}</td></tr>`).join('')}</tbody></table>`, 'ลูกหนี้รายลูกค้า')}
+    ${tableWrap(`<table class="stack-t"><thead><tr><th>ลูกค้า</th><th class="r">เครดิต</th><th class="r">ยอดขาย 12 เดือน</th><th class="r">ค้างชำระ</th><th class="r">เกินกำหนด</th><th class="r">ใบเก่าสุด</th></tr></thead><tbody>
+    ${rows.map((x) => `<tr${cust === x.c.customer_id ? ' class="is-target" data-target' : ''}><td class="t-name"><a href="#/sales?tab=ar&cust=${x.c.customer_id}">${esc(x.c.name)}</a><span class="sub-l">${esc(x.c.type)}${active(x.c) ? '' : ' เลิกใช้'}</span></td><td class="r"><span class="num">${x.c.credit_days}</span><span class="u">วัน</span></td><td class="r"><span class="num">${num(x.sales)}</span></td><td class="r"><span class="num"><b>${num(x.out)}</b></span></td><td class="r">${x.over ? `<span class="num" style="color:var(--crit)">${num(x.over)}</span>` : '<span class="muted">-</span>'}</td><td class="r">${x.oldest ? `<span class="num">${x.oldest}</span><span class="u">วัน</span>` : '-'}</td></tr>`).join('')}</tbody></table>`, 'ลูกหนี้รายลูกค้า')}
     <p class="note">หน่วยเป็นบาท ยอดขายมาจากใบส่งของที่ออกพร้อมใบเบิกยาสำเร็จรูป FM-19</p></section>
     <section class="panel" aria-labelledby="iv-h"><div class="panel-h"><h2 id="iv-h">${cust ? `ใบค้างชำระของ ${esc(custName(cust))}` : qInv ? `ผลค้น "${esc(qInv)}"` : scopeAll ? 'ใบค้างชำระทั้งหมด' : 'ใบส่งของเกินกำหนดชำระ'}</h2><span class="meta">${num(list.length)} ใบ เรียงครบกำหนดก่อน</span></div>
     <div class="filters"><a class="fchip" href="${arLink({})}" ${!cust && !qInv && !scopeAll ? 'aria-current="true"' : ''}>เกินกำหนด <span class="num">${num(nOver)}</span></a><a class="fchip" href="${arLink({ all: '1' })}" ${scopeAll && !cust && !qInv ? 'aria-current="true"' : ''}>ค้างชำระทั้งหมด <span class="num">${num(open.length)}</span></a>
@@ -835,6 +845,7 @@ function buildQC(inp, keep = {}) {
   const lot = S.lotMap.get(inp.lot);
   if (!lot || lot.status !== 'รอปล่อยผ่าน') return { error: 'ล็อตนี้ไม่ได้อยู่ในคิวรอปล่อยผ่าน' };
   const note = String(inp.note || '').trim();
+  if (!['ผ่านเกณฑ์', 'ไม่ผ่านเกณฑ์'].includes(inp.result)) return { error: 'เลือกผลตรวจก่อนบันทึก ผ่านเกณฑ์ หรือ ไม่ผ่านเกณฑ์' };
   if (inp.result === 'ไม่ผ่านเกณฑ์' && !note) return { error: 'ผลไม่ผ่านเกณฑ์ต้องใส่หมายเหตุว่าไม่ผ่านข้อใด' };
   const it = S.items.get(lot.item_code);
   const date = keep.date || S.today;
@@ -1017,7 +1028,8 @@ function viewLog(p) {
   const rows = evs.map((e) => {
     const st = S.evState.get(e.id)?.status;
     const info = editInfo(e);
-    const acts = info.ok ? `${info.editable ? `<a class="btn btn-sm" href="#/log?edit=${e.id}">${I.edit}แก้ไข</a> ` : ''}<a class="btn btn-sm btn-crit" href="#/log?del=${e.id}">ลบ</a>` : `<span class="sub-l">${esc(info.why)}</span>`;
+    const pk = permKey(e);
+    const acts = !info.ok ? `<span class="sub-l">${esc(info.why)}</span>` : !can(pk) ? `<span class="sub-l">แก้หรือลบได้เฉพาะ${esc((CAN[pk] || []).join(' หรือ '))}</span>` : `<span class="row-acts">${info.editable ? `<a class="btn btn-sm" href="#/log?edit=${e.id}">${I.edit}แก้ไข</a>` : ''}<a class="btn btn-sm btn-crit" href="#/log?del=${e.id}">ลบ</a></span>`;
     return `<tr${(editId || delId) === e.id ? ' class="is-target" data-target' : ''}><td class="nowrap">${esc(new Date(e.at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))}</td><td>${esc(short(staff(e.user).name))}<span class="sub-l">${esc(staff(e.user).role)}</span></td><td>${chip(KIND_TH[e.type] || e.type, 'ink')}</td><td${st && st !== 'active' ? ' class="struck"' : ''}>${esc(e.summary)}${e.before ? `<span class="sub-l">ฉบับเดิม: ${esc(e.before)}</span>` : ''}</td><td>${esc(e.reason || '')}</td><td>${statusChip(e)}</td><td>${acts}</td></tr>`;
   }).join('');
   return `<header class="room-head"><div><h1>ประวัติการแก้ไข</h1><p class="sub">ทุกรายการที่บันทึกในเว็บแก้ไขหรือลบได้ ต้องใส่เหตุผล ฉบับเดิมไม่หาย บอกได้ว่าใคร ทำอะไร จากค่าอะไรเป็นค่าอะไร เมื่อไร</p></div>
@@ -1142,8 +1154,50 @@ function renderChrome(id) {
     return `<a class="tab${ok ? '' : ' is-locked'}" href="#/${r.id}" ${r.id === tabId ? 'aria-current="page"' : ''}>${ok ? '' : I.lock}${esc(r.title)}${ok ? '' : '<span class="sr"> (ไม่มีสิทธิ์เข้า)</span>'}${n ? `<span class="count" title="วิกฤต ${n} เรื่อง"><span class="sr">วิกฤต </span>${n}<span class="sr"> เรื่อง</span></span>` : ''}</a>`;
   }).join('') + '<span class="tab-sep" aria-hidden="true"></span>'
     + TOOLS.map((t) => `<a class="tab tab-tool" href="#/${t.id}" ${t.id === tabId ? 'aria-current="page"' : ''}>${I[t.id] || ''}${esc(t.title)}${t.id === 'notes' && unread ? `<span class="count count-ink" title="ยังไม่ได้อ่าน ${unread} ฉบับ"><span class="sr">ยังไม่ได้อ่าน </span>${unread}</span>` : ''}</a>`).join('');
-  $('#user').innerHTML = S.base.staff.map((s) => `<option value="${s.user_id}" ${s.user_id === S.user ? 'selected' : ''}>${esc(short(s.name))} ${esc(s.role)}</option>`).join('');
+  renderUserOptions();
   $('#tabs [aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+// ช่องเลือกผู้ใช้: จอมือถือใช้ตัวย่อตำแหน่ง (จนท.คลัง หน.QC) ชื่อตำแหน่งเต็มยาวจนถูกตัด
+const narrowMQ = matchMedia('(max-width: 760px)');
+function renderUserOptions() {
+  const abbr = narrowMQ.matches;
+  $('#user').innerHTML = S.base.staff.map((s) => `<option value="${s.user_id}" ${s.user_id === S.user ? 'selected' : ''}>${esc(short(s.name))} ${esc(abbr ? roleAbbr(s.role) : s.role)}</option>`).join('');
+}
+// ตารางที่เรียงเป็นแผ่นบนจอแคบ: ป้ายของแต่ละช่องมาจากหัวตาราง (ตารางที่ไม่ได้ใส่ป้ายเอง)
+function labelStackTables(root) {
+  for (const t of root.querySelectorAll('table.stack-t')) {
+    if (t.querySelector('td[data-l]')) continue;
+    const ths = [...t.querySelectorAll('thead th')].map((th) => th.textContent.trim());
+    for (const tr of t.querySelectorAll('tbody tr')) {
+      [...tr.children].forEach((td, i) => { if (ths[i] && !td.classList.contains('t-name') && !td.classList.contains('empty') && !td.classList.contains('code')) td.setAttribute('data-l', ths[i]); });
+    }
+  }
+}
+// หลังวาดหน้าใหม่ในหน้าเดิม ให้โฟกัสกลับไปที่ปุ่มเดิม หรือใบสำเนาที่เพิ่งออก ไม่หลุดไปต้นหน้า (WCAG 2.4.3)
+const FOCUS_ATTRS = ['data-act', 'data-job', 'data-dir', 'data-lot', 'data-res', 'data-inv', 'data-pr', 'data-step', 'data-key', 'data-table', 'data-sys'];
+const FOCUS_BOX = ['.seg', '.filters', '.pipe', '.pager', '.acts', '.backbar'];
+const FOCUSABLE = 'a[href], button, input, select, textarea, summary';
+function focusKey(el, main) {
+  const box = el.closest(FOCUS_BOX.join(', '));
+  const boxSel = box ? FOCUS_BOX.find((s) => box.matches(s)) : '';
+  return {
+    id: el.id, tag: el.tagName.toLowerCase(), href: el.getAttribute('href'),
+    attrs: FOCUS_ATTRS.filter((a) => el.hasAttribute(a)).map((a) => [a, el.getAttribute(a)]),
+    boxSel, boxIdx: box ? [...main.querySelectorAll(boxSel)].indexOf(box) : -1, inBox: box ? [...box.querySelectorAll(FOCUSABLE)].indexOf(el) : -1,
+  };
+}
+function restoreFocus(k, main) {
+  let el = null;
+  if (k) {
+    if (k.id) el = document.getElementById(k.id);
+    if (el && !main.contains(el)) el = null;
+    if (!el && k.attrs.length) el = main.querySelector(k.tag + k.attrs.map(([a, v]) => `[${a}="${CSS.escape(v)}"]`).join(''));
+    if (!el && k.href) el = main.querySelector(`[href="${CSS.escape(k.href)}"]`);
+    if (!el && k.boxSel && k.boxIdx >= 0) el = main.querySelectorAll(k.boxSel)[k.boxIdx]?.querySelectorAll(FOCUSABLE)[k.inBox] || null;
+  }
+  if (el && !el.disabled) { el.focus(); return; }
+  const slip = main.querySelector('.slip');
+  if (slip) slip.focus(); else main.focus({ preventScroll: true });
 }
 
 function viewLocked(room) {
@@ -1182,15 +1236,19 @@ function route() {
   const { id, params } = parseHash();
   const user = currentUser();
   if (!VIEWS[id]) { location.replace(`#/${homeRoom(user.role)}`); return; }
+  const main = $('#main');
+  const act = document.activeElement;
+  const wasIn = !!act && act !== main && (main.contains(act) || !!act.closest?.('dialog') || act === document.body);
+  const fk = act && act !== main && main.contains(act) ? focusKey(act, main) : null;
   if (slipState.slip && slipState.slip.shown) slipState.slip = null;
   const room = ROOMS.find((r) => r.id === id);
   renderChrome(id);
-  const main = $('#main');
   document.body.classList.toggle('is-doc', id === 'doc');
   closeDialog();
   navVisit(location.hash);
   const view = room && !canEnter(room, user.role) ? viewLocked(room) : VIEWS[id](params, room);
   main.innerHTML = storeBanner() + (id === 'doc' ? '' : backBar()) + view;
+  labelStackTables(main);
   navTitle(main);
   if (slipState.slip) slipState.slip.shown = true;
   const title = room ? room.title : TITLES[id] || TOOLS.find((t) => t.id === id)?.title || '';
@@ -1200,6 +1258,7 @@ function route() {
   if (target) target.scrollIntoView({ block: 'center', inline: 'center' });
   else if (id !== lastId) window.scrollTo(0, 0);
   if (id !== lastId) main.focus({ preventScroll: true });
+  else if (wasIn) restoreFocus(fk, main);
   lastId = id;
   snapForms();
 }
@@ -1341,6 +1400,9 @@ function bind() {
     if (location.hash === next) route(); else location.hash = next;
   });
   const main = $('#main');
+  // ลิงก์ข้ามไปเนื้อหา: เลื่อนและโฟกัสเนื้อหาในหน้าเดิม ไม่เปลี่ยนที่อยู่หน้า (ตัวจัดหน้าอ่าน #main เป็นหน้าที่ไม่มี) WCAG 2.4.1
+  $('.skip')?.addEventListener('click', (e) => { e.preventDefault(); main.focus({ preventScroll: true }); main.scrollIntoView({ block: 'start' }); });
+  narrowMQ.addEventListener('change', renderUserOptions);
   // กันดับเบิลคลิกและกดรัว (QA-002 QA-037): ปุ่มที่บันทึกข้อมูล คลิกที่สองของดับเบิลคลิก หรือคลิกซ้ำภายใน 0.6 วินาที ไม่นับ
   // หลังคลิกแรก หน้าจอวาดใหม่และการ์ดหรือแถวถัดไปอาจเลื่อนมาอยู่ใต้เมาส์พอดี คลิกที่สองจึงไปโดนรายการอื่น (คลิกจากแป้นพิมพ์ไม่โดนกัน)
   const COMMIT_ACTS = new Set(['move', 'release', 'pay', 'prStep', 'prReject', 'toggleActive', 'reset', 'become']);
