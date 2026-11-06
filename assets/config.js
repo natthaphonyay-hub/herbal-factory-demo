@@ -103,7 +103,7 @@ export const PROC_STEPS = [
   { key: 'received', title: 'รับของ FM-01', who: 'เจ้าหน้าที่ฝ่ายจัดซื้อและคลัง', doc: 'FM-01 บันทึกการตรวจรับ' },
   { key: 'inspected', title: 'ตรวจรับพัสดุ', who: 'หัวหน้าฝ่ายผลิต', doc: 'ใบตรวจรับพัสดุ' },
   { key: 'pay_requested', title: 'ขออนุมัติเบิกจ่าย', who: 'เจ้าหน้าที่ฝ่ายจัดซื้อและคลัง', doc: 'บันทึกขออนุมัติเบิกจ่าย' },
-  { key: 'paid', title: 'จ่ายเงินแล้ว', who: 'ผู้อำนวยการโรงพยาบาล', doc: '' },
+  { key: 'paid', title: 'จ่ายเงินแล้ว', wait: 'รอจ่ายเงิน', who: 'ผู้อำนวยการโรงพยาบาล', doc: '' },
 ];
 export const canEnter = (room, role) => !room.roles || room.roles.includes(role);
 export const homeRoom = (role) => (['หัวหน้ากลุ่มงาน', 'ผู้อำนวยการโรงพยาบาล'].includes(role) ? 'overview' : (ROOMS.find((r) => r.id !== 'overview' && r.roles.includes(role)) || ROOMS[1]).id);

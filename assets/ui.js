@@ -15,6 +15,7 @@ export const money = (n) => `${num(n)} บาท`;
 export const baht = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const mill = (n) => (n / 1e6).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const short = (name) => String(name || '').replace(' (สมมุติ)', '');
+export const dateTime = (iso) => new Date(iso).toLocaleString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 export const LEVEL_TEXT = { crit: 'วิกฤต', warn: 'เฝ้าระวัง', ok: 'ปกติ' };
 const TH_MONTH = new Intl.DateTimeFormat('th-TH', { month: 'short', year: '2-digit', timeZone: 'UTC' });
 export const monthLabel = (ym) => TH_MONTH.format(new Date(`${ym}-01T00:00:00Z`));
@@ -190,10 +191,9 @@ export function slipBlock(room) {
   if (!s || s.room !== room) return '';
   const { o } = s;
   return `<section class="slip" aria-label="${esc(o.k)}" tabindex="-1">
-    <div><div class="slip-k">${esc(o.k)}</div><div class="slip-no">${esc(o.no)}</div></div>
+    <div class="slip-id"><div class="slip-k">${esc(o.k)}</div><div class="slip-no">${esc(o.no)}</div>${stamp(o.stamp[0], o.stamp[1], true)}</div>
     <div class="slip-main"><div class="t">${keepCodes(esc(o.title))}</div>${(o.lines || []).map((l) => `<div class="d">${keepCodes(esc(l))}</div>`).join('')}
       ${o.links ? `<div class="slip-links">${o.links.map(([t, href]) => `<a href="${href}">${I.doc}${esc(t)}</a>`).join('')}</div>` : ''}</div>
-    ${stamp(o.stamp[0], o.stamp[1], true)}
     <button type="button" class="slip-x" data-act="slipClose" aria-label="ปิดสำเนา">${I.close}</button>
   </section>`;
 }
@@ -218,19 +218,21 @@ function routeBar(t) {
     ${gap ? `<div class="route-gap" aria-hidden="true">ของหมดก่อนของมาถึง ${gap} วัน</div>` : ''}`;
 }
 // รหัส เลขที่ผลิต เลขรับ ใบสั่งซื้อ ใบขอซื้อ ไม่ให้ตัดบรรทัดกลางรหัส
-export const keepCodes = (html) => html.replace(/((?:[A-Z]{1,3}|[ก-ฮ]{2})\d{2}-\d{3,4}|[A-Z]{2,3}-\d{2,4}|\d{8})/g, '<span class="nowrap">$1</span>');
+export const keepCodes = (html) => html.replace(/((?:[A-Z]{1,3}|[ก-ฮ]{2})\d{2}-\d{3,4}|[A-Z]{2,3}-\d{2,4}|\d{8})/g, '<span class="mono">$1</span>');
 // การ์ดที่ผู้ใช้ตอนนี้ทำเองไม่ได้ (ห้องปลายทางล็อก) แสดงเป็นแจ้งให้ทราบ บอกว่าฝ่ายไหนเป็นคนทำ (QA-033)
 function goOrInfo(a) {
   const id = String(a.go || '').split('?')[0];
   const room = ROOMS.find((r) => r.id === id);
   if (room && !canEnter(room, currentUser().role)) return `<span class="go go-info">${I.lock}แจ้งให้ทราบ ${esc(room.id === 'overview' ? 'หัวหน้ากลุ่มงาน' : `ฝ่าย${room.title.replace(/^ฝ่าย/, '')}`)}เป็นผู้ทำ</span>`;
-  return `<a class="go" href="#/${a.go}">${esc(a.actionText)}${I.arrow}</a>`;
+  const t = esc(a.actionText), k = t.lastIndexOf(' ');
+  return `<a class="go" href="#/${a.go}">${k > 0 ? t.slice(0, k + 1) : ''}<span class="nowrap">${k > 0 ? t.slice(k + 1) : t}${I.arrow}</span></a>`;
 }
+const fieldVal = (v) => { const t = esc(v); const m = t.match(/^([\d,.]+)(?:\s|\u00A0)?(\S*)$/); return m ? `<span class="num">${m[1]}</span>${m[2] ? `<span class="u">${m[2]}</span>` : ''}` : keepCodes(t); };
 export function coupon(a) {
   return `<article class="coupon lv-${a.level}">
     <div class="stub"><span class="stub-k">${esc(a.stub.k)}</span><span class="stub-n">${esc(a.stub.n)}${a.stub.u ? `<small>${esc(a.stub.u)}</small>` : ''}</span><span class="stub-ref">${keepCodes(esc(a.stub.ref || ''))}</span></div>
     <div class="cbody"><h3><span class="sr">${LEVEL_TEXT[a.level]} </span>${subjectHref(a) ? `<a class="c-link" href="${subjectHref(a)}">${keepCodes(esc(a.title))}</a>` : keepCodes(esc(a.title))}</h3>
-      <dl class="fields">${a.fields.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${keepCodes(esc(v))}</dd></div>`).join('')}</dl>
+      <dl class="fields">${a.fields.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${fieldVal(v)}</dd></div>`).join('')}</dl>
       ${a.timeline ? routeBar(a.timeline) : ''}
       ${goOrInfo(a)}</div>
     ${stamp(a.stamp, a.level)}

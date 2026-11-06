@@ -1,15 +1,15 @@
 // หน้ารายละเอียด: รายการ (สมุนไพร วัตถุดิบ บรรจุภัณฑ์ ฉลาก) และงานบนบอร์ด
 // กดเข้ามาได้จากการ์ดงาน คูปองแจ้งเตือน และชื่อรายการในตารางทุกห้อง ยาสำเร็จรูปใช้หน้าผลิตภัณฑ์ (registers.js) ที่ดึงส่วนคลังจากไฟล์นี้
-import { CONFIG, LANES, STAGE_OWNER } from './config.js';
+import { CONFIG, LANES, STAGE_OWNER, CAN } from './config.js';
 import { S, D, staff, isFG, active, usable, bomOf, bomNeeds, stageOf, supplierLead, prStage, thaiDate, daysBetween } from './data.js';
-import { esc, num, num2, qn, qty, qh, I, chip, lotChip, tableWrap, supName, short, who, can, head, alertsBlock, slipBlock, itemLink, jobLink, LEVEL_TEXT } from './ui.js';
+import { esc, num, num2, qn, qty, qh, I, chip, lotChip, tableWrap, supName, short, who, can, head, alertsBlock, slipBlock, itemLink, jobLink, LEVEL_TEXT, roleAbbr, dateTime } from './ui.js';
 import { chart } from './plan.js';
 
 const IN_TYPES = new Set(['รับ', 'ยกมา']);
 const KIND_ORDER = ['สด', 'แห้ง', 'ผง'];
 const kindRank = (k) => { const i = KIND_ORDER.indexOf(k); return i < 0 ? 9 : i; };
 const lotLink = (no) => `<a class="mono" href="#/trace?lot=${encodeURIComponent(no)}">${esc(no)}</a>`;
-const when = (iso) => new Date(iso).toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' });
+const when = (iso) => dateTime(iso);
 const sumLots = (code, f) => (S.lotsByItem.get(code) || []).filter(f).reduce((t, l) => t + l.qty_left, 0);
 const field = (k, v, cls = '') => `<div${cls ? ` class="${cls}"` : ''}><dt>${esc(k)}</dt><dd>${v}</dd></div>`;
 
@@ -117,7 +117,7 @@ function usedInPanel(it) {
 export function viewItem(p) {
   const code = p.get('code');
   const it = S.items.get(code);
-  if (!it) return head('ไม่พบรายการ', [], '', 'ไม่พบรหัสนี้ในทะเบียน') + '<p class="empty"><a href="#/registers?tab=items">กลับไปทะเบียนวัตถุดิบและบรรจุภัณฑ์</a></p>';
+  if (!it) return head('ไม่พบรายการ', [], '', `ไม่พบรหัส ${esc(code || '')} ในทะเบียน`) + '<p class="empty"><a href="#/registers?tab=items">กลับไปทะเบียนวัตถุดิบและบรรจุภัณฑ์</a></p>';
   const st = D.itemStats.get(code);
   const alerts = D.alerts.filter((a) => a.item === code);
   const acts = [
@@ -165,8 +165,9 @@ export function viewJob(p) {
   const qcStage = stage === 'รอปล่อยผ่าน' || stage === 'ตรวจสอบแล้ว';
   const alerts = D.alerts.filter((a) => a.job === id);
   const acts = [
-    canMove ? `<button type="button" class="btn" data-act="move" data-job="${esc(id)}" data-dir="-1" ${idx <= 0 || qcStage ? 'disabled' : ''}>${I.left}ย้อนขั้น</button><button type="button" class="btn btn-solid" data-act="move" data-job="${esc(id)}" data-dir="1" ${qcStage ? 'disabled' : ''}>เลื่อนไปขั้นถัดไป${I.right}</button>` : '',
+    canMove ? `<button type="button" class="btn" data-act="move" data-job="${esc(id)}" data-dir="-1" ${idx <= 0 || qcStage ? 'disabled' : ''}>${I.left}ย้อนขั้น</button><button type="button" class="btn btn-solid" data-act="move" data-job="${esc(id)}" data-dir="1" ${qcStage || blocked ? 'disabled' : ''}${blocked ? ` title="หยุด รอ${esc(blocked)} ส่งต่อได้เมื่อของมาถึงและปล่อยผ่านแล้ว"` : ''}>เลื่อนไปขั้นถัดไป${I.right}</button>` : '',
     `<a class="btn" href="#/${roomId}?tab=board&job=${encodeURIComponent(id)}">ดูบนบอร์ด</a>`,
+    !canMove && card && !qcStage ? S.base.staff.filter((s) => CAN[`move${job.lane}`].includes(s.role)).slice(0, 1).map((s) => `<button type="button" class="btn" data-act="become" data-user="${s.user_id}" title="ย้ายงานได้เฉพาะ${esc(CAN[`move${job.lane}`].join(' หรือ '))}">ลองเป็น ${esc(short(s.name))} ${esc(roleAbbr(s.role))} เพื่อย้ายงาน</button>`).join('') : '',
   ].join('');
   const sub = `${esc(L.title)} ${chip(stage, stage === 'ตรวจสอบแล้ว' ? 'ok' : stage === 'รอปล่อยผ่าน' ? 'crit' : 'ink')}${blocked ? ` ${chip(`หยุด รอ${blocked}`, 'crit')}` : ''}`;
   const steps = `<ol class="steps" style="--n:${L.stages.length}" aria-label="ขั้นตอนงาน${esc(L.title)}">${L.stages.map((s, i) => `<li class="${i < idx ? 'is-done' : i === idx ? 'is-now' : ''}"${i === idx ? ' aria-current="step"' : ''}><span class="st-t">${esc(s)}</span><span class="st-s">${esc(L.sop[s])}</span>${i === idx ? `<span class="st-w">${who(owner)}${card ? `<span class="days">${num(card.days)} วัน</span>` : ''}</span>` : ''}</li>`).join('')}</ol>`;

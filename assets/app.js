@@ -9,7 +9,7 @@ import { fefoPick } from './logic.js';
 import {
   $, esc, num, qn, qty, qh, money, baht, mill, short, I, svg, chip, lotChip, stamp, tableWrap, supName, custName, who, deptLegend,
   toast, download, can, deny, roleNote, nav, setHash, slipState, showSlip, slipBlock, head, alertsBlock, seg, itemPicker, codeOf, monthLabel, actions, itemLink, jobLink, jobHref,
-  openDialog, closeDialog, storeBanner, backBar, roleAbbr, formCtx,
+  openDialog, closeDialog, storeBanner, backBar, roleAbbr, formCtx, dateTime,
 } from './ui.js';
 import { viewBuy, buyHandlers, buildPR, viewInspect, inspectQueue } from './buy.js';
 import { viewPlan } from './plan.js';
@@ -136,14 +136,14 @@ function viewOverview(p) {
   const roomRows = ROOMS.filter((r) => r.id !== 'overview').map((r) => {
     const a = roomAlerts(r.id);
     const c = a.filter((x) => x.level === 'crit').length, w = a.filter((x) => x.level === 'warn').length;
-    return `<tr><td><a href="#/${r.id}">${esc(r.title)}</a></td><td class="r"><span class="num"${c ? ' style="color:var(--crit)"' : ''}>${c}</span></td><td class="r"><span class="num">${w}</span></td><td>${a[0] ? esc(a[0].title) : '<span class="muted">ไม่มี</span>'}</td></tr>`;
+    return `<tr><td>${canEnter(r, currentUser().role) ? `<a href="#/${r.id}">${esc(r.title)}</a>` : `<span class="muted">${I.lock}${esc(r.title)}</span>`}</td><td class="r"><span class="num"${c ? ' style="color:var(--crit)"' : ''}>${c}</span></td><td class="r"><span class="num">${w}</span></td><td>${a[0] ? esc(a[0].title) : '<span class="muted">ไม่มี</span>'}</td></tr>`;
   }).join('');
   return head('ภาพรวมโรงงาน', alerts) + alertsBlock(alerts, 'ไม่มีเรื่องต้องตามวันนี้') + `
   <div class="work ov-top">
     <section class="panel" aria-labelledby="map-h"><div class="panel-h"><h2 id="map-h">สายการผลิต วัตถุดิบถึงลูกค้า</h2><span class="meta">งานในสาย ${num(active1.length)} งาน (แปรรูป ${active1.filter((j) => j.lane === 'แปรรูป').length} ผลิต ${active1.filter((j) => j.lane === 'ผลิต').length}) รอปล่อยผ่าน ${num(D.qcQueue.length)} ล็อต${qcLate ? ` เกิน ${CONFIG.qcWaitWarnDays} วัน ${qcLate} ล็อต` : ''}</span></div>${flowMap()}<p class="panel-foot">ตั๋วซ้อนหนา = งานหรือล็อตมาก ข้อมูล ณ ${esc(thaiDate(S.today))}</p></section>
     <section class="panel" aria-labelledby="rs-h"><div class="panel-h"><h2 id="rs-h">แจ้งเตือนแยกตามฝ่าย</h2><span class="meta">ของถึงจุดสั่งซื้อ ${num(inv.length)} รายการ${invCrit ? ` วิกฤต ${invCrit}` : ''}</span></div>
       ${tableWrap(`<table class="roomsum"><thead><tr><th>ห้องทำงาน</th><th class="r">วิกฤต</th><th class="r">เฝ้าระวัง</th><th>เรื่องแรก</th></tr></thead><tbody>${roomRows}</tbody></table>`, 'แจ้งเตือนแยกตามฝ่าย')}
-      <p class="panel-foot">ผลิตภัณฑ์ที่ผลิตอยู่ ${num(fg.filter(producing).length)} จาก ${fg.length} รายการ <a href="#/registers?tab=products">ดูทะเบียนผลิตภัณฑ์</a> กดชื่อฝ่ายเพื่อเข้าห้อง</p>
+      <p class="panel-foot">ผลิตภัณฑ์ที่ผลิตอยู่ ${num(fg.filter(producing).length)} จาก ${fg.length} รายการ <a href="#/registers?tab=products">ดูทะเบียนผลิตภัณฑ์</a> ${ROOMS.some((r) => r.id !== 'overview' && !canEnter(r, currentUser().role)) ? 'กดชื่อฝ่ายที่เปิดได้เพื่อเข้าห้อง ห้องที่มีรูปกุญแจเปิดไม่ได้' : 'กดชื่อฝ่ายเพื่อเข้าห้อง'}</p>
     </section>
   </div>
   ${laneBoard('แปรรูป', p, false)}${laneBoard('ผลิต', p, false)}
@@ -170,12 +170,24 @@ function kcard(c, canMove, target) {
 // ปุ่มย้ายการ์ด: ขั้นที่ย้ายจากบอร์ดไม่ได้ (เข้าหรือออกจากขั้นของฝ่ายควบคุมคุณภาพ) ปิดปุ่มและบอกเหตุผลไว้ ไม่ปล่อยให้กดแล้วค่อยเตือน
 function moveButtons(c, idx, L) {
   const id = c.job.job_id;
-  const b = (dir, icon, label, end) => {
-    const why = end ? '' : (moveCheck(id, dir).error || '');
-    return `<button type="button" class="btn-ico" data-act="move" data-job="${esc(id)}" data-dir="${dir}" ${end || why ? 'disabled' : ''}${why ? ` title="${esc(why)}"` : ''} aria-label="${label}">${icon}</button>`;
-  };
-  const why = [moveCheck(id, -1).error, moveCheck(id, 1).error].filter((w) => w && w !== 'ย้ายต่อไม่ได้แล้ว')[0] || '';
-  return `<div class="k-move"${why ? ` title="${esc(why)}"` : ''}>${b(-1, I.left, `ย้อน ${esc(id)} ไปขั้นก่อนหน้า`, idx <= 0)}${b(1, I.right, `ย้าย ${esc(id)} ไปขั้นถัดไป`, idx >= L.stages.length - 1)}</div>`;
+  const why = (dir) => moveCheck(id, dir).error || '';
+  if (c.stage === 'รอปล่อยผ่าน' || c.stage === 'ตรวจสอบแล้ว') return `<div class="k-move k-move-qc">${c.stage === 'รอปล่อยผ่าน' ? 'รอฝ่ายควบคุมคุณภาพปล่อยผ่าน' : 'ปล่อยผ่านแล้ว'}</div>`;
+  // งานที่หยุดรอวัตถุดิบ ส่งต่อไม่ได้จนกว่าของจะมาและปล่อยผ่าน ปิดปุ่มพร้อมบอกเหตุ ไม่ให้กดแล้วค่อยเตือน
+  const wPrev = idx <= 0 ? 'end' : why(-1);
+  const wNext = idx >= L.stages.length - 1 ? 'end' : c.blocked ? `หยุด รอ${c.blocked} ส่งต่อได้เมื่อของมาถึงและปล่อยผ่านแล้ว` : why(1);
+  const tip = (w) => (w && w !== 'end' ? ` title="${esc(w)}"` : '');
+  return `<div class="k-move"><button type="button" class="btn-ico" data-act="move" data-job="${esc(id)}" data-dir="-1" ${wPrev ? 'disabled' : ''}${tip(wPrev)} aria-label="ย้อน ${esc(id)} ไปขั้น ${esc(L.stages[idx - 1] || '')}">${I.left}</button><button type="button" class="btn btn-sm k-next" data-act="move" data-job="${esc(id)}" data-dir="1" ${wNext ? 'disabled' : ''}${tip(wNext)} aria-label="ส่งต่อ ${esc(id)} ไปขั้น ${esc(L.stages[idx + 1] || '')}">ส่งต่อ${I.right}</button></div>`;
+}
+// บอร์ดบอกชัดว่าใครย้ายงานได้ คนที่ย้ายไม่ได้มีปุ่มลองเป็นผู้มีสิทธิ์ (พี่ถาม 6 พ.ย. 2569 ว่าบอร์ดใช้ยังไง กดอะไรไม่ได้)
+function boardHelp(laneKey, canMove, allowMove) {
+  const roles = CAN[`move${laneKey}`];
+  const roomId = laneKey === 'ผลิต' ? 'prod' : 'process';
+  const roomTitle = ROOMS.find((r) => r.id === roomId).title;
+  if (canMove) return `<p class="board-how">${I.right}<span>ย้ายงานทีละขั้น กด <b>ส่งต่อ</b> หรือลูกศรย้อนบนการ์ด บนคอมพิวเตอร์ลากการ์ดไปคอลัมน์ข้างกันได้ ส่งเข้ารอปล่อยผ่านต้องกรอกจำนวนที่ได้จริง ป้ายรอปล่อยผ่านเปลี่ยนในห้องฝ่ายควบคุมคุณภาพ</span></p>`;
+  const u = currentUser();
+  const tryAs = S.base.staff.filter((s) => roles.includes(s.role)).map((s) => `<button type="button" class="btn btn-sm" data-act="become" data-user="${s.user_id}">ลองเป็น ${esc(short(s.name))} ${esc(roleAbbr(s.role))}</button>`).join('');
+  if (!allowMove) return `<div class="board-note"><p>บอร์ดในหน้าภาพรวมดูได้อย่างเดียว ย้ายงานได้ในห้อง${esc(roomTitle)} โดย${esc(roles.join(' หรือ '))}</p><div class="try"><a class="btn btn-sm" href="#/${roomId}?tab=board">ไปบอร์ดห้อง${esc(roomTitle)}</a></div></div>`;
+  return `<div class="board-note"><p>ดูได้อย่างเดียว ผู้ใช้ตอนนี้ ${esc(short(u.name))} ${esc(roleAbbr(u.role))} ย้ายงานบนบอร์ดนี้ได้เฉพาะ${esc(roles.join(' หรือ '))}</p><div class="try">${tryAs}</div></div>`;
 }
 function laneBoard(laneKey, p, allowMove = true) {
   const L = LANES[laneKey];
@@ -186,21 +198,21 @@ function laneBoard(laneKey, p, allowMove = true) {
   const stuck = (c) => c.blocked || (c.stage === 'รอปล่อยผ่าน' && c.days > CONFIG.qcWaitWarnDays);
   const cards = all.filter((c) => (!q || c.it.name.toLowerCase().includes(q) || c.job.job_id.toLowerCase().includes(q) || (c.job.out_lot || '').includes(q)) && (only !== 'stuck' || stuck(c)));
   const canMove = allowMove && can(`move${laneKey}`);
-  const hint = canMove ? 'ย้ายการ์ดทีละขั้นด้วยปุ่มลูกศรหรือลากวาง' : `ย้ายได้เฉพาะ${CAN[`move${laneKey}`].join(' หรือ ')}`;
   const here = (location.hash.match(/^#\/([^?]*)/) || [])[1] || (laneKey === 'ผลิต' ? 'prod' : 'process');
   const base = new URLSearchParams(location.hash.split('?')[1] || '');
   const link = (o) => { const x = new URLSearchParams(base); for (const [k, v] of Object.entries(o)) { if (v) x.set(k, v); else x.delete(k); } x.delete('job'); return `#/${here}?${x}`; };
-  return `<section class="panel lane" aria-labelledby="lane-${laneKey}"><div class="panel-h"><h2 id="lane-${laneKey}">บอร์ดงาน${esc(L.title)} งานอยู่ขั้นไหน ในมือใคร</h2><span class="meta">${cards.length} จาก ${all.length} งาน ${esc(hint)}</span></div>
+  return `<section class="panel lane" aria-labelledby="lane-${laneKey}"><div class="panel-h"><h2 id="lane-${laneKey}">บอร์ดงาน${esc(L.title)} งานอยู่ขั้นไหน ในมือใคร</h2><span class="meta">${cards.length} จาก ${all.length} งาน</span></div>
     <div class="filters">
       <a class="fchip" href="${link({ only: '' })}" ${only ? '' : 'aria-current="true"'}>ทุกงาน <span class="num">${all.length}</span></a>
       <a class="fchip" href="${link({ only: 'stuck' })}" ${only === 'stuck' ? 'aria-current="true"' : ''}>ติดขัดหรือรอนาน <span class="num">${all.filter(stuck).length}</span></a>
-      <form class="search" data-form="boardSearch" data-here="${esc(here)}" role="search"><label class="sr" for="bq-${laneKey}">ค้นงานบนบอร์ด${esc(L.title)}</label><input class="in" id="bq-${laneKey}" name="q" value="${esc(p.get('q') || '')}" placeholder="ค้นชื่อยา เลขงาน เลขที่ผลิต"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form>
-      ${deptLegend()}</div>
+      <form class="search" data-form="boardSearch" data-here="${esc(here)}" role="search"><label class="sr" for="bq-${laneKey}">ค้นงานบนบอร์ด${esc(L.title)}</label><input class="in" id="bq-${laneKey}" name="q" value="${esc(p.get('q') || '')}" placeholder="ค้นชื่อยา เลขงาน เลขที่ผลิต"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form></div>
+    ${boardHelp(laneKey, canMove, allowMove)}
     ${q && !cards.length ? `<p class="empty">ไม่พบงานที่ตรงกับ "${esc(p.get('q') || '')}" <a href="${link({ q: '' })}">ล้างคำค้น</a></p>` : ''}
     <div class="kanban">${L.stages.map((st) => {
       const cs = cards.filter((c) => c.stage === st);
       return `<section class="kcol${cs.length ? '' : ' is-empty'}" data-drop="${esc(st)}" data-lane="${esc(laneKey)}" aria-label="${esc(st)} ${cs.length} งาน"><div class="kcol-h"><strong>${esc(st)}</strong><span class="num">${cs.length}</span></div><div class="kcol-s">${esc(L.sop[st])}</div><div class="kcol-b">${cs.map((c) => kcard(c, canMove, target)).join('') || '<div class="k-empty">ไม่มีงาน</div>'}</div></section>`;
-    }).join('')}</div></section>`;
+    }).join('')}</div>
+    <div class="lane-foot">${deptLegend()}</div></section>`;
 }
 
 
@@ -316,7 +328,7 @@ function viewLaneRoom(p, room) {
   const word = lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป';
   const nIns = lane === 'ผลิต' ? inspectQueue().length : 0;
   const tabs = lane === 'ผลิต' ? [['board', 'บอร์ดงาน'], ['new', 'เปิดงานผลิต'], ['materials', 'วัตถุดิบพอไหม'], ['inspect', `ตรวจรับพัสดุ${nIns ? ` (${nIns})` : ''}`], ['plan', 'พยากรณ์และแผน']] : [['board', 'บอร์ดงาน'], ['new', 'เปิดงานแปรรูป'], ['farm', 'รับจากเกษตรกร'], ['plan', 'พยากรณ์และแผน']];
-  const acts = `<a class="btn btn-solid" href="#/${room.id}?tab=new">เปิดงาน${word}</a>`;
+  const acts = `<a class="btn${tab === 'new' ? '' : ' btn-solid'}" href="#/${room.id}?tab=new">เปิดงาน${word}</a>`;
   let body;
   if (tab === 'new') body = jobForm(room, p);
   else if (tab === 'materials') body = materialsCheck();
@@ -352,7 +364,7 @@ function jobForm(room, p) {
 
 function materialsCheck() {
   const jobs = S.jobs.filter((j) => j.lane === 'ผลิต' && j.status === 'waiting');
-  const rows = jobs.flatMap((j) => { const ns = bomNeeds(j.item_code, j.qty); return ns.map((n, i) => `<tr${n.ok ? '' : ' class="is-target"'}>${i === 0 ? `<td rowspan="${ns.length}">${jobLink(j.job_id)}<span class="sub-l">${itemLink(j.item_code)} ${esc(qty(j.item_code, j.qty))}</span></td>` : ''}<td>${itemLink(n.code)}</td><td class="r">${qh(n.code, n.need)}</td><td class="r">${qh(n.code, n.have)}</td><td>${n.ok ? chip('พอ', 'ok') : chip('ไม่พอ', 'crit')}</td></tr>`); });
+  const rows = jobs.flatMap((j) => { const ns = bomNeeds(j.item_code, j.qty); return ns.map((n, i) => `<tr${n.ok ? '' : ' class="is-short"'}>${i === 0 ? `<td rowspan="${ns.length}">${jobLink(j.job_id)}<span class="sub-l">${itemLink(j.item_code)} ${esc(qty(j.item_code, j.qty))}</span></td>` : ''}<td>${itemLink(n.code)}</td><td class="r">${qh(n.code, n.need)}</td><td class="r">${qh(n.code, n.have)}</td><td>${n.ok ? chip('พอ', 'ok') : chip('ไม่พอ', 'crit')}</td></tr>`); });
   return `<section class="panel" aria-labelledby="mc-h"><div class="panel-h"><h2 id="mc-h">วัตถุดิบสำหรับงานที่รอเบิก</h2><span class="meta">${jobs.length} งาน เทียบสูตรกับของที่ตรวจสอบแล้วในคลัง</span></div>
     ${rows.length ? tableWrap(`<table><thead><tr><th>งาน</th><th>วัตถุดิบ</th><th class="r">ต้องใช้</th><th class="r">ตรวจสอบแล้ว</th><th>พอไหม</th></tr></thead><tbody>${rows.join('')}</tbody></table>`, 'วัตถุดิบสำหรับงานที่รอเบิก') : '<p class="empty">ไม่มีงานรอเบิก งานที่เปิดใหม่จะขึ้นที่นี่</p>'}</section>`;
 }
@@ -382,7 +394,7 @@ function itemStatus(s) {
 function viewStore(p) {
   const alerts = roomAlerts('store');
   const tab = p.get('tab') || 'stock';
-  const acts = `<a class="btn" href="#/store?tab=issue">เบิกออก</a><a class="btn" href="#/store?tab=buy&new=1">เขียนใบขอซื้อ</a><a class="btn btn-solid" href="#/store?tab=receive">รับเข้า FM-01</a>`;
+  const acts = `<a class="btn" href="#/store?tab=issue">เบิกออก</a><a class="btn" href="#/store?tab=buy&new=1">เขียนใบขอซื้อ</a><a class="btn${tab === 'receive' ? '' : ' btn-solid'}" href="#/store?tab=receive">รับเข้า FM-01</a>`;
   const tabs = [['stock', 'คงคลัง'], ['card', 'บัตรคุม FM-02'], ['receive', 'รับเข้า FM-01'], ['issue', 'เบิกออก'], ['buy', 'จัดซื้อ'], ['plan', 'พยากรณ์และแผน']];
   let body;
   if (tab === 'card') body = stockCard(p);
@@ -521,7 +533,7 @@ function issueForm(p) {
     ${askedNote(p, code, 'issue')}
     <form data-form="issue" class="form-grid">
       ${itemPicker({ name: 'item', items, value: code, act: 'issueItem', label: 'รายการ', id: 'issue' })}
-      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" ${qtyAttrs(it)} required></label>
+      <label class="f">จำนวน (${esc(it.unit)})<span class="exp-th">เบิกได้ (ตรวจสอบแล้ว) ${esc(qty(code, D.itemStats.get(code)?.released || 0))}</span><input class="in" name="qty" type="number" ${qtyAttrs(it)} required></label>
       ${isFG(it) ? `<label class="f wide">จ่ายให้ลูกค้า (เลือกจากทะเบียนลูกค้า ระบบออกใบส่งของให้)<select class="in" name="to" required><option value="">เลือกลูกค้า</option>${S.base.customers.filter(active).map((c) => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('')}</select></label>`
         : `<label class="f wide">จ่ายให้<input class="in" name="to" required list="toList" maxlength="120" placeholder="เช่น งานผลิต J70-350"></label>
       <datalist id="toList">${S.jobs.filter((j) => j.status !== 'done').slice(-80).map((j) => `<option value="งานผลิต ${j.job_id}">`).join('')}</datalist>`}
@@ -570,14 +582,14 @@ function qcReleased(p) {
   const fchip = (k, t) => `<a class="fchip" href="#/qc?tab=released&kind=${k}" ${k === kind ? 'aria-current="true"' : ''}>${t}</a>`;
   return `<section class="panel" aria-labelledby="qr-h"><div class="panel-h"><h2 id="qr-h">บันทึกการปล่อยผ่าน${kind === 'fg' ? 'ผลิตภัณฑ์สำเร็จรูป FM-35' : ''}</h2><a class="btn btn-sm" href="#/doc?type=fm35&month=${S.today.slice(0, 7)}">${I.print}พิมพ์ FM-35 เดือนนี้</a></div>
   <div class="filters">${fchip('fg', 'ยาสำเร็จรูป')}${fchip('raw', 'วัตถุดิบ')}${fchip('all', 'ทั้งหมด')}</div>
-  ${tableWrap(`<table><thead><tr><th>ว/ด/ป</th><th>รายการ</th><th>Lot No.</th><th>ผลการตรวจ</th><th>ผู้ตรวจ</th><th>ผู้อนุมัติปล่อยผ่าน</th><th>หมายเหตุ</th></tr></thead><tbody>
-  ${rs.map((r) => `<tr><td class="nowrap">${esc(thaiDate(r.date))}</td><td>${itemLink(r.item_code)}</td><td class="code">${esc(r.lot_no)}</td><td>${r.result === 'ผ่าน' ? lotChip('ตรวจสอบแล้ว') : lotChip('ไม่ผ่าน')}</td><td>${esc(short(staff(r.checker_id).name))}</td><td>${esc(short(staff(r.approver_id).name))}</td><td>${esc(r.note)}</td></tr>`).join('')}
+  ${tableWrap(`<table><thead><tr><th>ว/ด/ป</th><th>รายการ</th><th>Lot No.</th><th>ผลการตรวจ</th><th>ผู้ตรวจ</th><th>ผู้อนุมัติปล่อยผ่าน</th>${rs.some((r) => r.note) ? '<th>หมายเหตุ</th>' : ''}</tr></thead><tbody>
+  ${rs.map((r) => `<tr><td class="nowrap">${esc(thaiDate(r.date))}</td><td>${itemLink(r.item_code)}</td><td class="code">${esc(r.lot_no)}</td><td>${r.result === 'ผ่าน' ? lotChip('ตรวจสอบแล้ว') : lotChip('ไม่ผ่าน')}</td><td>${esc(short(staff(r.checker_id).name))}</td><td>${esc(short(staff(r.approver_id).name))}</td>${rs.some((x) => x.note) ? `<td>${esc(r.note)}</td>` : ''}</tr>`).join('')}
   </tbody></table>`, 'บันทึกการปล่อยผ่าน')}</section>`;
 }
 function qcRejected() {
   const lots = S.lots.filter((l) => l.status === 'ไม่ผ่าน').sort((a, b) => (b.release_date || '').localeCompare(a.release_date || '')).slice(0, 30);
-  return `<section class="panel" aria-labelledby="rj-h"><div class="panel-h"><h2 id="rj-h">ล็อตไม่ผ่าน แยกเก็บ รอส่งคืนหรือทำลาย</h2><span class="meta">SOP-QC-12</span></div>
-  ${lots.length ? tableWrap(`<table><thead><tr><th>Lot No.</th><th>รายการ</th><th class="r">คงเหลือ</th><th>วันที่ตัดสิน</th><th>ที่มา</th><th>ป้าย</th></tr></thead><tbody>${lots.map((l) => `<tr><td class="code">${esc(l.lot_no)}</td><td>${itemLink(l.item_code)}</td><td class="r">${qh(l.item_code, l.qty_left)}</td><td class="nowrap">${esc(thaiDate(l.release_date))}</td><td>${esc(l.source)}</td><td>${lotChip('ไม่ผ่าน')}</td></tr>`).join('')}</tbody></table>`, 'ล็อตไม่ผ่าน') : '<p class="empty">ยังไม่มีล็อตไม่ผ่าน</p>'}</section>`;
+  return `<section class="panel" aria-labelledby="rj-h"><div class="panel-h"><h2 id="rj-h">ล็อตไม่ผ่าน</h2><span class="meta">SOP-QC-12</span></div>
+  ${lots.length ? tableWrap(`<table><thead><tr><th>Lot No.</th><th>รายการ</th><th class="r">คงเหลือ</th><th>วันที่ตัดสิน</th><th>ที่มา</th><th>ป้าย</th></tr></thead><tbody>${lots.map((l) => `<tr><td class="code">${esc(l.lot_no)}</td><td>${itemLink(l.item_code)}</td><td class="r">${qh(l.item_code, l.qty_left)}</td><td class="nowrap">${esc(thaiDate(l.release_date))}</td><td>${esc(l.source)}</td><td>${lotChip('ไม่ผ่าน')} ${l.qty_left > 0 ? chip('รอส่งคืนหรือทำลาย', 'warn') : '<span class="muted">ส่งคืนหรือทำลายแล้ว</span>'}</td></tr>`).join('')}</tbody></table>`, 'ล็อตไม่ผ่าน') : '<p class="empty">ยังไม่มีล็อตไม่ผ่าน</p>'}</section>`;
 }
 
 // ปล่อยผ่านหรือไม่ผ่าน: ถามยืนยันพร้อมเลขที่และชื่อรายการก่อนทุกครั้ง เพราะแก้หรือลบไม่ได้ (QA-018 QA-037 WHO TRS 1033 ข้อ 11.13)
@@ -601,7 +613,7 @@ function askRelease(lotNo, result, reasonDraft) {
       <div><dt>จำนวน</dt><dd>${qh(it.code, lot.qty_left)}</dd></div><div><dt>ผลตรวจ</dt><dd>${chip(res.result, res.result === 'ผ่านเกณฑ์' ? 'ok' : 'crit')}</dd></div>
       <div><dt>ผู้ตรวจ</dt><dd>${esc(short(staff(res.checker_id).name))} ${esc(thaiDate(res.date))}</dd></div><div><dt>เปลี่ยนป้ายเป็น</dt><dd>${lotChip(pass ? 'ตรวจสอบแล้ว' : 'ไม่ผ่าน')}</dd></div></dl>
     ${pass ? '' : `<label class="f">เหตุผลที่ไม่ผ่าน (ต้องกรอก)<input class="in" name="reason" required maxlength="300" value="${esc(reasonDraft || res.note || '')}" autofocus></label>`}
-    <p class="dlg-note">${pass ? 'ปล่อยผ่านแล้วของล็อตนี้เบิกได้ทันที ' : 'ไม่ผ่านแล้วของล็อตนี้ต้องแยกเก็บ '}การอนุมัตินี้แก้หรือลบไม่ได้ ถ้าผิดต้องทำรายงานความเบี่ยงเบน FM-51 ตรวจเลขที่และชื่อรายการให้ตรงกับของจริงก่อนกดยืนยัน</p>`;
+    <p class="dlg-note">${pass ? 'ปล่อยผ่านแล้วของล็อตนี้เบิกได้ทันที ' : 'ไม่ผ่านแล้วของล็อตนี้ต้องแยกเก็บ '}การอนุมัตินี้<span class="nowrap">แก้หรือลบไม่ได้</span> ถ้าผิดต้องทำรายงานความเบี่ยงเบน FM-51 ตรวจเลขที่และชื่อรายการให้ตรงกับของจริงก่อนกดยืนยัน</p>`;
   openDialog({
     title: pass ? `ยืนยันปล่อยผ่าน ${lotNo}` : `ยืนยันไม่ผ่าน ${lotNo}`, body, ok: pass ? 'ยืนยันปล่อยผ่าน' : 'ยืนยันไม่ผ่าน', tone: pass ? 'solid' : 'crit',
     onOk: (fd) => guard(() => {
@@ -1032,7 +1044,7 @@ function viewLog(p) {
     const info = editInfo(e);
     const pk = permKey(e);
     const acts = !info.ok ? `<span class="sub-l">${esc(info.why)}</span>` : !can(pk) ? `<span class="sub-l">แก้หรือลบได้เฉพาะ${esc((CAN[pk] || []).join(' หรือ '))}</span>` : `<span class="row-acts">${info.editable ? `<a class="btn btn-sm" href="#/log?edit=${e.id}">${I.edit}แก้ไข</a>` : ''}<a class="btn btn-sm btn-crit" href="#/log?del=${e.id}">ลบ</a></span>`;
-    return `<tr${(editId || delId) === e.id ? ' class="is-target" data-target' : ''}><td class="nowrap">${esc(new Date(e.at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))}</td><td>${esc(short(staff(e.user).name))}<span class="sub-l">${esc(staff(e.user).role)}</span></td><td>${chip(KIND_TH[e.type] || e.type, 'ink')}</td><td${st && st !== 'active' ? ' class="struck"' : ''}>${esc(e.summary)}${e.before ? `<span class="sub-l">ฉบับเดิม: ${esc(e.before)}</span>` : ''}</td><td>${esc(e.reason || '')}</td><td>${statusChip(e)}</td><td>${acts}</td></tr>`;
+    return `<tr${(editId || delId) === e.id ? ' class="is-target" data-target' : ''}><td class="nowrap">${esc(dateTime(e.at))}</td><td>${esc(short(staff(e.user).name))}<span class="sub-l">${esc(staff(e.user).role)}</span></td><td>${chip(KIND_TH[e.type] || e.type, 'ink')}</td><td${st && st !== 'active' ? ' class="struck"' : ''}>${esc(e.summary)}${e.before ? `<span class="sub-l">ฉบับเดิม: ${esc(e.before)}</span>` : ''}</td><td>${esc(e.reason || '')}</td><td>${statusChip(e)}</td><td>${acts}</td></tr>`;
   }).join('');
   return `<header class="room-head"><div><h1>ประวัติการแก้ไข</h1><p class="sub">ทุกรายการที่บันทึกในเว็บแก้ไขหรือลบได้ ต้องใส่เหตุผล ฉบับเดิมไม่หาย บอกได้ว่าใคร ทำอะไร จากค่าอะไรเป็นค่าอะไร เมื่อไร</p></div>
   <div class="acts"><button type="button" class="btn" data-act="exportLog" ${S.events.length ? '' : 'disabled'}>${I.download}ส่งออก CSV</button><button type="button" class="btn btn-crit" data-act="reset" ${S.events.length && can('reset') ? '' : 'disabled'} title="${can('reset') ? 'ดาวน์โหลดสำรองให้ก่อนล้าง' : 'เฉพาะหัวหน้ากลุ่มงาน'}">ล้างข้อมูลทดลองทั้งหมด</button></div></header>
@@ -1148,7 +1160,9 @@ const logCSV = () => toCSV(S.events.map((x) => ({ ...x, user_name: staff(x.user)
 // ================= แถบด้านบน =================
 function renderChrome(id) {
   const user = currentUser();
-  const tabId = id === 'product' ? 'registers' : id === 'doc' ? 'docs' : id;
+  const hp = new URLSearchParams(location.hash.split('?')[1] || '');
+  const jobLane = id === 'job' ? S.jobs.find((j) => j.job_id === hp.get('id'))?.lane : '';
+  const tabId = id === 'product' ? 'registers' : id === 'doc' ? 'docs' : id === 'item' ? (isFG(S.items.get(hp.get('code'))) ? 'registers' : 'store') : id === 'job' ? (jobLane === 'ผลิต' ? 'prod' : jobLane ? 'process' : '') : id;
   const unread = unreadNotes().length;
   $('#tabs').innerHTML = ROOMS.map((r) => {
     const ok = canEnter(r, user.role);
@@ -1185,6 +1199,7 @@ function nbspUnits(root) {
   const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement?.closest('textarea, option, select, script, style') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
   for (let n = w.nextNode(); n; n = w.nextNode()) { const t = n.nodeValue; if (/\d /.test(t)) { const v = t.replace(UNIT_RE, '$1 '); if (v !== t) n.nodeValue = v; } }
 }
+function markSticky(root) { for (const s of root.querySelectorAll('.work > .stack')) s.classList.toggle('is-sticky', s.offsetHeight < innerHeight - 150); }
 // แท็บย่อยที่เลือกอยู่ เลื่อนเข้ามาในจอเสมอ (ข้อ 14)
 function fitSegs(root) {
   for (const s of root.querySelectorAll('.seg')) {
@@ -1243,7 +1258,7 @@ function viewLocked(room) {
   const people = S.base.staff.filter((s) => room.roles.includes(s.role));
   return `<div class="locked"><article class="coupon">
     <div class="stub">${svg('<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>')}<span class="stub-k">ล็อกตามสิทธิ์</span><span class="stub-k">${room.roles.length} บทบาทเข้าได้</span></div>
-    <div class="cbody"><h1 class="k-t" style="font-size:1.25rem;padding-right:110px">${room.id === 'overview' ? 'ภาพรวมโรงงาน' : `ห้องทำงาน${esc(room.title)}`}</h1>
+    <div class="cbody"><h1 class="locked-t">${room.id === 'overview' ? 'ภาพรวมโรงงาน' : `ห้องทำงาน${esc(room.title)}`}</h1>
       <p>ผู้ใช้ตอนนี้ ${esc(short(user.name))} ${esc(user.role)} ยังไม่มีสิทธิ์เข้าห้องนี้ ข้อมูล การกรอง และการแจ้งเตือนของห้องนี้แสดงเฉพาะผู้มีสิทธิ์</p>
       <div><div class="stub-k">เปิดได้เฉพาะ</div><div class="roles">${room.roles.map((r) => chip(r, 'ink')).join('')}</div></div>
       <div class="try">${people.map((s) => `<button type="button" class="btn btn-sm" data-act="become" data-user="${s.user_id}">ลองเป็น ${esc(short(s.name))} ${esc(s.role)}</button>`).join('')}</div>
@@ -1288,6 +1303,7 @@ function route() {
   main.innerHTML = storeBanner() + (id === 'doc' ? '' : backBar()) + view;
   labelStackTables(main);
   nbspUnits(main);
+  markSticky(main);
   fitCharts(main);
   navTitle(main);
   if (slipState.slip) slipState.slip.shown = true;
@@ -1478,7 +1494,7 @@ function bind() {
   $('.skip')?.addEventListener('click', (e) => { e.preventDefault(); main.focus({ preventScroll: true }); main.scrollIntoView({ block: 'start' }); });
   narrowMQ.addEventListener('change', renderUserOptions);
   tabsScroller();
-  addEventListener('resize', () => fitSegs(main));
+  addEventListener('resize', () => { fitSegs(main); markSticky(main); });
   // กันดับเบิลคลิกและกดรัว (QA-002 QA-037): ปุ่มที่บันทึกข้อมูล คลิกที่สองของดับเบิลคลิก หรือคลิกซ้ำภายใน 0.6 วินาที ไม่นับ
   // หลังคลิกแรก หน้าจอวาดใหม่และการ์ดหรือแถวถัดไปอาจเลื่อนมาอยู่ใต้เมาส์พอดี คลิกที่สองจึงไปโดนรายการอื่น (คลิกจากแป้นพิมพ์ไม่โดนกัน)
   const COMMIT_ACTS = new Set(['move', 'release', 'pay', 'prStep', 'prReject', 'toggleActive', 'reset', 'become']);

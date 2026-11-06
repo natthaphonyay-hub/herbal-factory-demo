@@ -2,7 +2,7 @@
 // ขั้นตอนตามชุดแบบฟอร์มวิธีเฉพาะเจาะจงใน OF06 (พ.ร.บ. จัดซื้อจัดจ้าง 2560 ม.56 (2)(ข) ระเบียบกระทรวงการคลัง 2560 ข้อ 22 และ 79)
 import { CONFIG, PROC, PROC_STEPS, CAN } from './config.js';
 import { S, D, commit, currentUser, thaiDate, daysBetween, addDays, poForecast, prStage, nextPrNo, nextPoNo, active, staff, isIntUnit } from './data.js';
-import { esc, num, baht, qty, qh, short, I, chip, tableWrap, supName, toast, can, deny, roleNote, nav, setHash, showSlip, itemPicker, codeOf, actions, itemLink, openDialog } from './ui.js';
+import { esc, num, baht, qty, qh, short, I, chip, tableWrap, supName, toast, can, deny, roleNote, nav, setHash, showSlip, itemPicker, codeOf, actions, itemLink, openDialog, roleAbbr } from './ui.js';
 
 const STEP = Object.fromEntries(PROC_STEPS.map((s, i) => [s.key, { ...s, i }]));
 const DOCS = {
@@ -87,7 +87,7 @@ function nextAction(r, st) {
   if (st.key === 'received') return `<a class="btn btn-sm${allowed ? ' btn-solid' : ''}" href="#/store?tab=receive&item=${r.item_code}&po=${encodeURIComponent(r.po_no)}">รับของ FM-01</a>`;
   const label = { head_ok: 'เห็นชอบ', dir_ok: 'อนุมัติ', ordered: 'ออกใบสั่งซื้อ', inspected: 'ตรวจรับพัสดุ', pay_requested: 'ขออนุมัติเบิกจ่าย', paid: 'บันทึกจ่ายเงินแล้ว', requested: 'ส่งขออนุมัติ' }[st.key];
   const reject = ['head_ok', 'dir_ok'].includes(st.key) && allowed ? `<button type="button" class="btn btn-sm btn-crit" data-act="prReject" data-pr="${esc(r.pr_no)}">ไม่อนุมัติ</button>` : '';
-  return allowed ? `<button type="button" class="btn btn-sm btn-solid" data-act="prStep" data-pr="${esc(r.pr_no)}" data-step="${st.key}">${esc(label)}</button>${reject}` : `<span class="sub-l">รอ ${esc(STEP[st.key].who)}${st.key === 'inspected' ? ' (ทำในห้องฝ่ายผลิต แท็บตรวจรับพัสดุ)' : ''}</span>`;
+  return allowed ? `<button type="button" class="btn btn-sm btn-solid" data-act="prStep" data-pr="${esc(r.pr_no)}" data-step="${st.key}">${esc(label)}</button>${reject}` : `<span class="sub-l">รอ ${esc(roleAbbr(STEP[st.key].who))}${st.key === 'inspected' ? ' (ทำในห้องฝ่ายผลิต แท็บตรวจรับพัสดุ)' : ''}</span>`;
 }
 
 export function viewBuy(p) {
@@ -100,13 +100,13 @@ export function viewBuy(p) {
   const counts = Object.fromEntries(PROC_STEPS.map((s) => [s.key, open.filter((x) => x.st.key === s.key).length]));
   const done = all.filter((x) => x.st.key === 'done').sort((a, b) => b.r.paid.localeCompare(a.r.paid)).slice(0, 8);
   const rejected = all.filter((x) => x.st.key === 'rejected');
-  const pipe = `<ol class="pipe" aria-label="ขั้นตอนจัดซื้อและจำนวนใบที่รออยู่">${PROC_STEPS.map((s, i) => `<li><a href="#/store?tab=buy${stepF === s.key ? '' : `&step=${s.key}`}" ${stepF === s.key ? 'aria-current="true"' : ''}><span class="pipe-i">${i + 1}</span><span class="pipe-t">รอ${esc(s.title)}</span><span class="num">${counts[s.key]}</span><span class="pipe-w">${esc(s.who.replace('เจ้าหน้าที่ฝ่ายจัดซื้อและคลัง', 'จนท.คลัง'))}</span></a></li>`).join('')}</ol>`;
+  const pipe = `<ol class="pipe" aria-label="ขั้นตอนจัดซื้อและจำนวนใบที่รออยู่">${PROC_STEPS.map((s, i) => `<li><a href="#/store?tab=buy${stepF === s.key ? '' : `&step=${s.key}`}" ${stepF === s.key ? 'aria-current="true"' : ''}><span class="pipe-i">${i + 1}</span><span class="pipe-t">${esc(s.wait || `รอ${s.title}`)}</span><span class="num">${counts[s.key]}</span><span class="pipe-w">${esc(roleAbbr(s.who))}</span></a></li>`).join('')}</ol>`;
   const row = ({ r, st }) => {
     const it = S.items.get(r.item_code);
     const waited = daysBetween(st.since, S.today);
     const late = waited > CONFIG.procWaitDays && ['head_ok', 'dir_ok', 'ordered', 'inspected', 'pay_requested'].includes(st.key);
     return `<tr${target === r.pr_no || (poT && r.po_no === poT) ? ' class="is-target" data-target' : ''}><td class="code">${esc(r.pr_no)}${r.po_no ? `<span class="sub-l">${esc(r.po_no)}</span>` : ''}</td><td class="t-name">${itemLink(it)}<span class="sub-l">${esc(short(supName(r.supplier_id)))}</span></td><td class="r">${qh(r.item_code, r.qty)}</td><td class="r"><span class="num">${baht(r.amount)}</span></td>
-      <td>${chip(`รอ${st.title}`, late ? 'warn' : 'ink')}<span class="sub-l">${waited} วันในขั้นนี้</span></td><td><div class="doc-links">${docLinks(r)}</div></td><td><div class="inline-form">${nextAction(r, st)}</div></td></tr>`;
+      <td>${chip(st.key === 'paid' ? 'รอจ่ายเงิน' : `รอ${st.title}`, late ? 'warn' : 'ink')}<span class="sub-l">${waited} วันในขั้นนี้</span></td><td><div class="doc-links">${docLinks(r)}</div></td><td><div class="inline-form">${nextAction(r, st)}</div></td></tr>`;
   };
   const poOpen = [...D.itemStats.values()].flatMap((s) => s.poViews.map((v) => ({ s, v }))).sort((a, b) => a.v.prob - b.v.prob);
   return `${p.get('new') ? prForm(p) : ''}

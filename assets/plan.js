@@ -35,7 +35,7 @@ export function chart(code) {
   const line = months.map((m, i) => `${i ? 'L' : 'M'}${(i * step + step / 2).toFixed(1)} ${y(m.v).toFixed(1)}`).join('');
   return `<figure class="fc-chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="ยอดเบิกรายเดือน 12 เดือนที่ผ่านมาและพยากรณ์ 12 เดือนข้างหน้า ของ ${esc(it.name)}">
     <line class="base" x1="0" x2="${W}" y1="${base}" y2="${base}"/>
-    ${months.map((m, i) => `<rect class="${m.a ? 'fc-act' : 'fc-fc'}" x="${(i * step + (step - bw) / 2).toFixed(1)}" y="${y(m.v).toFixed(1)}" width="${bw.toFixed(1)}" height="${(base - y(m.v)).toFixed(1)}" rx="3"><title>${esc(monthLabel(m.k))} ${m.a ? 'เบิกจริง' : 'พยากรณ์'} ${num(m.v)} ${esc(it.unit)}</title></rect>${i % 3 === 0 ? `<text class="ax" x="${(i * step + step / 2).toFixed(1)}" y="${base + 18}" text-anchor="middle">${esc(monthLabel(m.k))}</text>` : ''}`).join('')}
+    ${months.map((m, i) => `<rect class="${m.a ? 'fc-act' : 'fc-fc'}" x="${(i * step + (step - bw) / 2).toFixed(1)}" y="${y(m.v).toFixed(1)}" width="${bw.toFixed(1)}" height="${(base - y(m.v)).toFixed(1)}" rx="3"><title>${esc(monthLabel(m.k))} ${m.a ? 'เบิกจริง' : 'พยากรณ์'} ${num(m.v)} ${esc(it.unit)}</title></rect>${i % 3 === 0 ? `<text class="ax" x="${(i === 0 ? 2 : i * step + step / 2).toFixed(1)}" y="${base + 18}" text-anchor="${i === 0 ? 'start' : 'middle'}">${esc(monthLabel(m.k))}</text>` : ''}`).join('')}
     <path class="fc-line" d="${line}"/>
     <line class="fc-now" x1="${12 * step}" x2="${12 * step}" y1="${top - 6}" y2="${base}"/><text class="ax" x="${12 * step + 6}" y="${top + 4}">เริ่มพยากรณ์</text>
   </svg><figcaption class="legend"><span><i class="fc-act"></i>เบิกจริงรายเดือน</span><span><i class="fc-fc"></i>พยากรณ์</span></figcaption></figure>`;
@@ -52,11 +52,13 @@ export function viewPlan(p, scope, room) {
     .sort((a, b) => (b.f.fc[0] * (b.s.it.cost || 0)) - (a.f.fc[0] * (a.s.it.cost || 0)));
   const link = (o) => { const x = new URLSearchParams({ tab: 'plan', kind, q: p.get('q') || '', ...o }); for (const [k, v] of [...x]) if (!v) x.delete(k); return `#/${room}?${x}`; };
   const kinds = scope === 'store' ? KINDS : [...new Set(pool.map((s) => s.it.kind))];
+  const fcPool = pool.filter((s) => (!q || s.it.name.toLowerCase().includes(q) || s.it.code.includes(q)) && forecastOf(s.it.code).total > 0);
+  const nOf = (k) => fcPool.filter((s) => !k || s.it.kind === k).length;
   const fyNow = fyOf(S.today);
   const selRow = sel && D.itemStats.get(sel);
   return `<div class="work">
     <section class="panel" aria-labelledby="fc-h"><div class="panel-h"><h2 id="fc-h">พยากรณ์ความต้องการรายเดือน</h2><span class="meta">${rows.length} รายการที่มีการเบิกใน 12 เดือน เรียงตามมูลค่าเดือนหน้า</span></div>
-      <div class="filters">${['', ...kinds].map((k) => `<a class="fchip" href="${link({ kind: k })}" ${k === kind ? 'aria-current="true"' : ''}>${esc(k || 'ทั้งหมด')}</a>`).join('')}
+      <div class="filters">${['', ...kinds].map((k) => `<a class="fchip" href="${link({ kind: k })}" ${k === kind ? 'aria-current="true"' : ''}>${esc(k || 'ทั้งหมด')} <span class="num">${nOf(k)}</span></a>`).join('')}
         <form class="search" data-form="planSearch" data-room="${room}" role="search"><label class="sr" for="pq">ค้นรายการ</label><input class="in" id="pq" name="q" value="${esc(p.get('q') || '')}" placeholder="ค้นชื่อหรือรหัส"><input type="hidden" name="kind" value="${esc(kind)}"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form></div>
       ${tableWrap(`<table><thead><tr><th>รายการ</th><th class="r">เบิก 12 เดือน</th><th class="r">เฉลี่ยต่อเดือน</th><th class="r">พยากรณ์เดือนหน้า</th><th class="r">3 เดือนข้างหน้า</th><th>ความแม่นย้อนหลัง</th><th class="r">คงคลังพอใช้</th></tr></thead><tbody>
       ${rows.slice(0, 50).map(({ s, f }) => { const rel = reliability(f.err); const months = f.fc[0] > 0 ? (s.released + s.quarantine) / f.fc[0] : null; return `<tr${sel === s.it.code ? ' class="is-target"' : ''}><td><a href="${link({ item: s.it.code })}">${esc(s.it.name)}</a><span class="sub-l mono">${s.it.code}</span></td><td class="r">${qh(s.it.code, f.total)}</td><td class="r"><span class="num">${num(f.avg)}</span></td><td class="r"><span class="num"><b>${num(f.fc[0])}</b></span></td><td class="r"><span class="num">${num(f.fc[0] + f.fc[1] + f.fc[2])}</span></td><td>${chip(rel.t, rel.lv)}</td><td class="r">${months === null ? '-' : `<span class="num">${num(months, 1)}</span><span class="u">เดือน</span>`}</td></tr>`; }).join('') || '<tr><td colspan="7" class="empty">ไม่มีรายการที่มีการเบิก</td></tr>'}</tbody></table>`, 'พยากรณ์ความต้องการ')}
