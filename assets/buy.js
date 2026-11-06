@@ -130,7 +130,7 @@ export const inspectQueue = () => S.prs.map((r) => ({ r, st: prStage(r) })).filt
 export function viewInspect() {
   const xs = inspectQueue();
   const allowed = can('inspected');
-  return `<section class="panel" aria-labelledby="ins-h"><div class="panel-h"><h2 id="ins-h">ใบขอซื้อรอตรวจรับพัสดุ</h2><span class="meta">${xs.length} ใบ ของมาถึงแล้ว คลังบันทึกรับ FM-01 แล้ว</span></div>
+  return `<section class="panel" aria-labelledby="ins-h"><div class="panel-h"><h2 id="ins-h">ใบขอซื้อรอตรวจรับพัสดุ</h2><span class="meta">${xs.length ? `${xs.length} ใบ ของมาถึงแล้ว คลังบันทึกรับ FM-01 แล้ว` : 'ไม่มีใบค้างตรวจรับ'}</span></div>
     ${allowed ? '' : `<p class="form-note">ผู้ใช้ตอนนี้ ${esc(short(currentUser().name))} ${esc(currentUser().role)} ดูได้อย่างเดียว ตรวจรับพัสดุได้เฉพาะ${esc(CAN.inspected.join(' หรือ '))} (ผู้ตรวจรับตามคำสั่งแต่งตั้ง)</p>`}
     ${xs.length ? tableWrap(`<table class="stack-t"><thead><tr><th>เลขที่</th><th>รายการ</th><th class="r">จำนวน</th><th class="r">ยอดเงิน (บาท)</th><th>รับของเมื่อ</th><th>เอกสาร</th><th>ตรวจรับ</th></tr></thead><tbody>
     ${xs.map(({ r, st }) => { const waited = daysBetween(st.since, S.today); return `<tr><td class="code">${esc(r.pr_no)}<span class="sub-l">${esc(r.po_no)}</span></td><td class="t-name">${itemLink(r.item_code)}<span class="sub-l">${esc(short(supName(r.supplier_id)))}</span></td><td class="r" data-l="จำนวน">${qh(r.item_code, r.qty)}</td><td class="r" data-l="ยอดเงิน"><span class="num">${baht(r.amount)}</span></td>

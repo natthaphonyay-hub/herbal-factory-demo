@@ -1237,6 +1237,8 @@ function navTitle(main) {
   top.title = `${h1.slice(0, 48)}${tab ? ` (${tab.replace(/\s*\(\d+\)$/, '')})` : ''}`;
   try { sessionStorage.setItem(NAV_KEY, JSON.stringify(navStack)); } catch { /* ไม่จำก็ใช้ได้ */ }
 }
+// เปลี่ยนผู้ใช้แล้วเริ่มนับหน้าใหม่ ไม่ให้ปุ่มย้อนกลับพาไปห้องที่ผู้ใช้ใหม่เข้าไม่ได้
+function navReset() { navStack = []; navBackTo = null; nav.prev = null; try { sessionStorage.removeItem(NAV_KEY); } catch { /* ไม่จำก็ได้ */ } }
 function goBack() {
   const prev = nav.prev;
   if (!prev) return;
@@ -1312,6 +1314,7 @@ function bind() {
   });
   $('#user').addEventListener('change', (e) => {
     setUser(e.target.value);
+    navReset();
     slipState.slip = null;
     const u = currentUser();
     toast(`เปลี่ยนผู้ใช้เป็น ${short(u.name)} ${u.role}`);
@@ -1342,7 +1345,7 @@ function bind() {
     if (act === 'move') moveJob(b.dataset.job, Number(b.dataset.dir));
     if (act === 'release') askRelease(b.dataset.lot, b.dataset.res, document.getElementById(`rs-${b.dataset.lot}`)?.value.trim() || '');
     if (act === 'pay') recordPayment(b.dataset.inv);
-    if (act === 'become') { setUser(b.dataset.user); toast(`เปลี่ยนผู้ใช้เป็น ${short(currentUser().name)} ${currentUser().role}`); route(); }
+    if (act === 'become') { setUser(b.dataset.user); navReset(); toast(`เปลี่ยนผู้ใช้เป็น ${short(currentUser().name)} ${currentUser().role}`); route(); }
     if (act === 'slipClose') { slipState.slip = null; route(); }
     if (act === 'print') window.print();
     if (act === 'export') { download('lots-ข้อมูลจำลอง.csv', toCSV(S.lots, ['lot_no', 'item_code', 'qty_in', 'qty_left', 'date_in', 'exp_date', 'status', 'release_date', 'source', 'source_ref'])); download('moves-ข้อมูลจำลอง.csv', toCSV(S.moves, ['move_id', 'date', 'item_code', 'lot_no', 'type', 'qty', 'party', 'doc_no', 'user_id'])); }

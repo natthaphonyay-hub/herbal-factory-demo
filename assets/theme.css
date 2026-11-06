@@ -335,9 +335,9 @@ td .sub-l { display: block; font-size: var(--t-xs); color: var(--muted); }
 .map .st-warn { stroke: var(--warn); stroke-width: 2; }
 .map .st-name { font: 600 13px var(--font); fill: var(--navy); }
 .map .st-n { font: 700 24px var(--font); fill: var(--carbon); }
-.map .st-u { font: 500 11.5px var(--font); fill: var(--muted); }
-.map .st-tag { font: 700 11px var(--font); fill: var(--crit); }
-.map .st-tag-w { font: 700 11px var(--font); fill: var(--warn); }
+.map .st-u { font: 500 12px var(--font); fill: var(--muted); }
+.map .st-tag { font: 700 12px var(--font); fill: var(--crit); }
+.map .st-tag-w { font: 700 12px var(--font); fill: var(--warn); }
 .map .leg { fill: none; stroke: var(--navy); stroke-width: 2; stroke-dasharray: 6 6; animation: flow 1.2s linear infinite; }
 .map .leg-head { fill: var(--navy); }
 .map .leg-crit { fill: none; stroke: var(--crit); stroke-width: 2.5; stroke-dasharray: 6 6; animation: flow .7s linear infinite, blink 1.1s steps(2, jump-none) infinite; }
@@ -363,7 +363,7 @@ td .sub-l { display: block; font-size: var(--t-xs); color: var(--muted); }
 .bars .bar-b { fill: #9FB0CB; }
 .bars .bar-now { fill: var(--carbon); }
 .bars .bar-b:hover, .bars .bar-now:hover { fill: var(--navy); }
-.bars .ax { font: 500 11px var(--font); fill: var(--muted); }
+.bars .ax { font: 500 12px var(--font); fill: var(--muted); }
 .bars .val { font: 700 13px var(--font); fill: var(--carbon); }
 .bars .base { stroke: var(--rule); stroke-width: 1; }
 .aging { display: flex; gap: 2px; height: 18px; border-radius: 4px; overflow: hidden; margin: 6px 0 10px; }
@@ -495,7 +495,7 @@ td.struck { text-decoration: line-through; text-decoration-color: var(--perf); c
 .fc-fc { fill: var(--carbon-soft); stroke: var(--carbon); stroke-width: 1; stroke-dasharray: 3 3; background: var(--carbon-soft); border: 1px dashed var(--carbon); }
 .fc-line { fill: none; stroke: var(--carbon); stroke-width: 2; }
 .fc-now { stroke: var(--ink-2); stroke-width: 1; stroke-dasharray: 4 4; }
-.fc-chart .ax, .fc-chart text { font: 500 11px var(--font); fill: var(--muted); }
+.fc-chart .ax, .fc-chart text { font: 500 12px var(--font); fill: var(--muted); }
 .fc-chart .base { stroke: var(--rule); }
 .fc-chart .legend { margin-top: 6px; }
 .fc-chart .legend i { border-radius: 2px; }
@@ -732,3 +732,5 @@ td.struck { text-decoration: line-through; text-decoration-color: var(--perf); c
   .btn-ico { width: 40px; height: 40px; }
   .btn-sm { min-height: 36px; }
 }
+.pipe-i, text.ax, text.st-u, text.st-tag, text.st-tag-w { font-size: 12px; }
+.f-check input { width: 24px; height: 24px; min-width: 24px; flex: none; margin: 0; }
