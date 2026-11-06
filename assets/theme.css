@@ -130,7 +130,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .acts { display: flex; gap: 8px; flex-wrap: wrap; }
 .foot { padding-top: 8px; color: var(--muted); font-size: var(--t-xs); line-height: 1.7; }
 /* ท้ายหน้า: ชื่อระบบ เวอร์ชัน ผู้พัฒนา คั่นจากเนื้อหาด้วยรอยปรุ (พี่ขอ 6 พ.ย. 2569) */
-.foot-id { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 18px; margin: 0 0 6px; padding-top: 12px; border-top: 1px dashed var(--perf); color: var(--ink-2); font-size: var(--t-sm); }
+.foot-id { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; text-align: right; gap: 2px 18px; margin: 0 0 6px; padding-top: 12px; border-top: 1px dashed var(--perf); color: var(--ink-2); font-size: var(--t-sm); }
 .foot-id strong { color: var(--navy); font-weight: 700; }
 
 /* ---------- ปุ่มและช่องกรอก ---------- */
@@ -324,7 +324,7 @@ input.in[type="number"] { text-align: right; color: var(--carbon); font-weight: 
 
 /* ---------- บอร์ดงาน ---------- */
 .lane + .lane { margin-top: 16px; }
-.kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(196px, 1fr); gap: 10px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
+.kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(196px, 1fr); align-items: start; gap: 10px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: thin; }
 .kcol { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 10px; border-radius: var(--r); background: var(--ground); transition: background-color .16s ease, box-shadow .16s ease; }
 .kcol.is-over { background: var(--carbon-soft); box-shadow: inset 0 0 0 1.5px var(--carbon); }
 .kcol-h { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
