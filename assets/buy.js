@@ -41,7 +41,7 @@ export function buildPR(inp, keep = {}) {
     if (pending.length) return { confirm: { title: 'มีใบขอซื้อรายการนี้ค้างอยู่', msgs: [`${it.name} มีใบขอซื้อที่ยังไม่ออกใบสั่งซื้อ ${pending.map((r) => r.pr_no).join(', ')} ขอซื้อเพิ่มอีกใบหรือไม่`] } };
     const past = S.prs.filter((r) => r.item_code === inp.item && r.pr_no !== keep.pr).slice(-10).map((r) => r.qty).sort((a, b) => a - b);
     const med = past.length >= 3 ? past[Math.floor(past.length / 2)] : 0;
-    if (med > 0 && q > med * CONFIG.unusualQtyX) return { confirm: { title: 'จำนวนขอซื้อผิดปกติ ตรวจอีกครั้ง', msgs: [`ขอซื้อ ${qty(inp.item, q)} มากกว่าที่เคยขอราว ${num(q / med, 1)} เท่า (ปกติครั้งละราว ${qty(inp.item, med)}) ตรวจว่าไม่ได้พิมพ์ศูนย์เกิน`] } };
+    if (med > 0 && q > med * CONFIG.unusualQtyX && q > past[past.length - 1] * 2) return { confirm: { title: 'จำนวนขอซื้อผิดปกติ ตรวจอีกครั้ง', msgs: [`ขอซื้อ ${qty(inp.item, q)} มากกว่าที่เคยขอราว ${num(q / med, 1)} เท่า (ปกติครั้งละราว ${qty(inp.item, med)}) ตรวจว่าไม่ได้พิมพ์ศูนย์เกิน`] } };
   }
   return {
     summary: `เขียนใบขอซื้อ ${prNo} ${it.name} ${qty(inp.item, q)} จาก ${sup.name} ${baht(amount)} บาท`, room: 'store',

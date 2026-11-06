@@ -188,6 +188,8 @@ export function commit(event) {
     }
   }
   const ev = { id: `E${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, at: new Date().toISOString(), user: S.user, ...event };
+  // ขนาดต่อรายการมีเพดาน กันข้อความยาวผิดปกติทำหน้าค้างหรือถมที่เก็บ (QA-023 ข้อกำหนด R8)
+  if (JSON.stringify(ev).length > 60000) throw new SaveError('รายการนี้ใหญ่ผิดปกติ (ข้อความยาวเกิน) ระบบไม่บันทึก ตัดข้อความให้สั้นลงแล้วบันทึกใหม่', 'size');
   const next = S.events.concat(ev);
   const text = JSON.stringify(next);
   try { localStorage.setItem(KEY, text); } catch {
@@ -712,7 +714,7 @@ function buildAlerts() {
       title: `${c.it.name} หยุดรอ${c.blocked}`,
       stamp: 'หยุดรอของ',
       stub: { k: 'หยุดมาแล้ว', n: String(c.days), u: 'วัน', ref: c.job.job_id },
-      fields: [['รอ', c.lack ? `${c.blocked} ขาด ${fmtQ(c.lack.code, c.lack.need - c.lack.have)}` : c.blocked], ['ของจะมา', next ? `${thaiDate(next.expected)} ${next.po.po_no}` : making ? `งาน ${making.job_id} กำลัง${making.lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป'}` : mat && mat.make === 'make' ? 'ยังไม่มีงานแปรรูป' : 'ยังไม่มีใบสั่งซื้อ'], ['จำนวนผลิต', fmtQ(c.it.code, c.job.qty)], ['ผู้ถืองาน', c.owner.name.replace(' (สมมุติ)', '')]],
+      fields: [['รอ', c.lack ? `${c.blocked} ขาด ${fmtQ(c.lack.code, c.lack.need - c.lack.have)}` : c.blocked], ['ของจะมา', next ? `${thaiDate(next.expected)} ${next.po.po_no}` : making ? `งาน ${making.job_id} กำลัง${making.lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป'}` : mat && mat.make === 'make' ? 'ยังไม่มีงานแปรรูป' : mat && mat.make === 'farm' ? 'ยังไม่ได้รับซื้อจากเกษตรกร (FM-23)' : 'ยังไม่มีใบสั่งซื้อ'], ['จำนวนผลิต', fmtQ(c.it.code, c.job.qty)], ['ผู้ถืองาน', c.owner.name.replace(' (สมมุติ)', '')]],
       detail: 'วัตถุดิบไม่พอเบิกตามสูตร จึงยังเริ่มผลิตไม่ได้',
       actionText: 'ดูงานบนบอร์ด', go: `${room}?tab=board&job=${encodeURIComponent(c.job.job_id)}`, sort: 0.001,
     });

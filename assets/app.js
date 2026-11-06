@@ -9,7 +9,7 @@ import { fefoPick } from './logic.js';
 import {
   $, esc, num, qn, qty, qh, money, baht, mill, short, I, svg, chip, lotChip, stamp, tableWrap, supName, custName, who, deptLegend,
   toast, download, can, deny, roleNote, nav, setHash, slipState, showSlip, slipBlock, head, alertsBlock, seg, itemPicker, codeOf, monthLabel, actions, itemLink, jobLink, jobHref,
-  openDialog, closeDialog, storeBanner,
+  openDialog, closeDialog, storeBanner, backBar,
 } from './ui.js';
 import { viewBuy, buyHandlers, buildPR, viewInspect, inspectQueue } from './buy.js';
 import { viewPlan } from './plan.js';
@@ -311,7 +311,7 @@ function viewLaneRoom(p, room) {
   else if (tab === 'inspect' && lane === 'ผลิต') body = viewInspect();
   else if (tab === 'plan') body = viewPlan(p, lane, room.id);
   else body = laneBoard(lane, p);
-  return head(`ห้องทำงาน${L.title}`, alerts, acts) + slipBlock(room.id) + alertsBlock(alerts) + seg(room.id, tabs, tab) + body;
+  return head(`ห้องทำงาน${L.title}`, alerts, acts) + slipBlock(room.id) + alertsBlock(alerts, '', { fold: tab === 'new' || tab === 'inspect' }) + seg(room.id, tabs, tab) + body;
 }
 
 function jobForm(room, p) {
@@ -378,7 +378,9 @@ function viewStore(p) {
   else if (tab === 'buy') body = viewBuy(p);
   else if (tab === 'plan') body = viewPlan(p, 'store', 'store');
   else body = storeStock(p);
-  return head('ห้องทำงานฝ่ายจัดซื้อและคลัง', alerts, acts) + slipBlock('store') + alertsBlock(alerts) + seg('store', tabs, tab) + body;
+  // แท็บที่เป็นฟอร์ม: พับการ์ดเตือนไว้ ให้ฟอร์มขึ้นก่อน (QA-026 มือถือต้องเลื่อนผ่านการ์ดเตือนก่อนถึงฟอร์ม)
+  const formTab = tab === 'receive' || tab === 'issue' || (tab === 'buy' && !!p.get('new'));
+  return head('ห้องทำงานฝ่ายจัดซื้อและคลัง', alerts, acts) + slipBlock('store') + alertsBlock(alerts, '', { fold: formTab }) + seg('store', tabs, tab) + body;
 }
 
 function poStubs(limit = 5) {
@@ -634,15 +636,25 @@ function arTab(p, ar) {
     const inv = S.invoices.filter((v) => v.customer_id === c.customer_id && v.date <= S.today);
     return { c, sales: inv.filter((v) => v.date > from).reduce((s, v) => s + v.total, 0), out: inv.filter((v) => !v.paid_date).reduce((s, v) => s + owedOf(v), 0), over: inv.filter((v) => !v.paid_date && v.due_date < S.today).reduce((s, v) => s + owedOf(v), 0), oldest: inv.filter((v) => !v.paid_date).reduce((m, v) => Math.max(m, daysBetween(v.date, S.today)), 0) };
   }).sort((a, b) => b.over - a.over || b.out - a.out);
-  const unpaid = S.invoices.filter((v) => !v.paid_date && v.date <= S.today && (cust ? v.customer_id === cust : v.due_date < S.today)).sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 25);
+  // ค้นเลขใบส่งของหรือชื่อลูกค้าได้จากหน้าหลัก และดูใบค้างทั้งหมดได้ ไม่ต้องกดชื่อลูกค้าก่อน (QA-024)
+  const qInv = (p.get('inv') || '').trim();
+  const scopeAll = p.get('all') === '1';
+  const open = S.invoices.filter((v) => !v.paid_date && v.date <= S.today);
+  const nOver = open.filter((v) => v.due_date < S.today).length;
+  const list = open.filter((v) => (cust ? v.customer_id === cust : qInv ? v.inv_no.toLowerCase().includes(qInv.toLowerCase()) || custName(v.customer_id).includes(qInv) : scopeAll || v.due_date < S.today)).sort((a, b) => a.due_date.localeCompare(b.due_date));
+  const more = Math.max(1, Math.floor(Number(p.get('more'))) || 1);
+  const unpaid = list.slice(0, 25 * more);
+  const arLink = (o) => { const x = new URLSearchParams({ tab: 'ar', ...o }); for (const [k, v] of [...x]) if (!v) x.delete(k); return `#/sales?${x}`; };
   const canPay = can('payment');
   return `<div class="work"><section class="panel" aria-labelledby="cu-h"><div class="panel-h"><h2 id="cu-h">ขายให้ใคร ค้างเท่าไร</h2><span class="meta">กดชื่อลูกค้าเพื่อดูใบค้าง</span></div>
     ${tableWrap(`<table><thead><tr><th>ลูกค้า</th><th class="r">เครดิต</th><th class="r">ยอดขาย 12 เดือน</th><th class="r">ค้างชำระ</th><th class="r">เกินกำหนด</th><th class="r">ใบเก่าสุด</th></tr></thead><tbody>
     ${rows.map((x) => `<tr${cust === x.c.customer_id ? ' class="is-target" data-target' : ''}><td><a href="#/sales?tab=ar&cust=${x.c.customer_id}">${esc(x.c.name)}</a><span class="sub-l">${esc(x.c.type)}${active(x.c) ? '' : ' เลิกใช้'}</span></td><td class="r"><span class="num">${x.c.credit_days}</span><span class="u">วัน</span></td><td class="r"><span class="num">${num(x.sales)}</span></td><td class="r"><span class="num"><b>${num(x.out)}</b></span></td><td class="r">${x.over ? `<span class="num" style="color:var(--crit)">${num(x.over)}</span>` : '<span class="muted">-</span>'}</td><td class="r">${x.oldest ? `<span class="num">${x.oldest}</span><span class="u">วัน</span>` : '-'}</td></tr>`).join('')}</tbody></table>`, 'ลูกหนี้รายลูกค้า')}
     <p class="note">หน่วยเป็นบาท ยอดขายมาจากใบส่งของที่ออกพร้อมใบเบิกยาสำเร็จรูป FM-19</p></section>
-    <section class="panel" aria-labelledby="iv-h"><div class="panel-h"><h2 id="iv-h">${cust ? `ใบค้างชำระของ ${esc(custName(cust))}` : 'ใบส่งของเกินกำหนดชำระ'}</h2>${cust ? '<a href="#/sales?tab=ar">ดูทุกรายที่เกินกำหนด</a>' : ''}</div>
+    <section class="panel" aria-labelledby="iv-h"><div class="panel-h"><h2 id="iv-h">${cust ? `ใบค้างชำระของ ${esc(custName(cust))}` : qInv ? `ผลค้น "${esc(qInv)}"` : scopeAll ? 'ใบค้างชำระทั้งหมด' : 'ใบส่งของเกินกำหนดชำระ'}</h2><span class="meta">${num(list.length)} ใบ เรียงครบกำหนดก่อน</span></div>
+    <div class="filters"><a class="fchip" href="${arLink({})}" ${!cust && !qInv && !scopeAll ? 'aria-current="true"' : ''}>เกินกำหนด <span class="num">${num(nOver)}</span></a><a class="fchip" href="${arLink({ all: '1' })}" ${scopeAll && !cust && !qInv ? 'aria-current="true"' : ''}>ค้างชำระทั้งหมด <span class="num">${num(open.length)}</span></a>
+      <form class="search" data-form="arSearch" role="search"><label class="sr" for="arq">ค้นเลขใบส่งของหรือชื่อลูกค้า</label><input class="in" id="arq" name="inv" value="${esc(qInv)}" maxlength="60" placeholder="ค้นเลขใบส่งของ เช่น IV70-0016"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form></div>
     ${roleNote('payment', 'บันทึกรับชำระ')}
-    ${unpaid.length ? `<ul class="mini">${unpaid.map((v) => { const late = daysBetween(v.due_date, S.today); return `<li><span class="t"><a class="mono" href="#/doc?type=fm19&inv=${encodeURIComponent(v.inv_no)}">${esc(v.inv_no)}</a> ${cust ? '' : esc(short(custName(v.customer_id)))}<span class="d">ครบกำหนด ${esc(thaiDate(v.due_date))}${late > 0 ? ` เกินมา ${late} วัน` : ''} ยอด ${esc(money(v.total))}${paidOf(v) > 0 ? ` รับแล้ว ${esc(money(paidOf(v)))} ค้าง ${esc(money(owedOf(v)))}` : ''}</span></span><button type="button" class="btn btn-sm" data-act="pay" data-inv="${esc(v.inv_no)}" ${canPay ? '' : 'disabled'}>รับชำระ</button></li>`; }).join('')}</ul>` : '<p class="empty">ไม่มีใบค้างชำระ</p>'}
+    ${unpaid.length ? `<ul class="mini">${unpaid.map((v) => { const late = daysBetween(v.due_date, S.today); return `<li><span class="t"><a class="mono" href="#/doc?type=fm19&inv=${encodeURIComponent(v.inv_no)}">${esc(v.inv_no)}</a> ${cust ? '' : esc(short(custName(v.customer_id)))}<span class="d">ครบกำหนด ${esc(thaiDate(v.due_date))}${late > 0 ? ` เกินมา ${late} วัน` : ''} ยอด ${esc(money(v.total))}${paidOf(v) > 0 ? ` รับแล้ว ${esc(money(paidOf(v)))} ค้าง ${esc(money(owedOf(v)))}` : ''}</span></span><button type="button" class="btn btn-sm" data-act="pay" data-inv="${esc(v.inv_no)}" ${canPay ? '' : 'disabled'}>รับชำระ</button></li>`; }).join('')}</ul>${list.length > unpaid.length ? `<a class="more-link" href="${arLink({ cust, inv: qInv, all: scopeAll ? '1' : '', more: String(more + 1) })}">แสดงเพิ่มอีก ${num(Math.min(25, list.length - unpaid.length))} ใบ (เหลือ ${num(list.length - unpaid.length)} ใบ)</a>` : ''}` : `<p class="empty">${qInv ? 'ไม่พบใบค้างชำระตามที่ค้น' : 'ไม่มีใบค้างชำระ'}</p>`}
     <div style="margin-top:16px">${agingBar(ar)}</div></section></div>`;
 }
 function salesTab(ms, p) {
@@ -845,7 +857,7 @@ const DEL_KEY = { payment: 'payment', maint: 'assetMaster', formula: 'formulaEdi
 function saveFailed(e) {
   closeDialog();
   slipState.slip = null;
-  toast(e.message, e.kind === 'stale' ? 'warn' : 'crit');
+  toast(e.message, e.kind === 'stale' || e.kind === 'size' ? 'warn' : 'crit');
   route();
 }
 function guard(fn) {
@@ -875,12 +887,13 @@ function askSure(type, inp, c) {
     }),
   });
 }
-// จำนวนผิดปกติ: มากกว่า CONFIG.unusualQtyX เท่าของค่ากลาง 20 ครั้งล่าสุดของรายการนี้ (in-house)
+// จำนวนผิดปกติ: มากกว่า CONFIG.unusualQtyX เท่าของค่ากลาง และมากกว่า 2 เท่าของครั้งที่มากที่สุด ใน 20 ครั้งล่าสุดของรายการนี้ (in-house)
+// ข้อมูลตั้งต้น ยอดขายจริงแกว่งได้ถึงราว 4.6 เท่าของค่ากลาง เงื่อนไขคู่จึงจับการพิมพ์ศูนย์เกิน (10 เท่า) ได้ โดยไม่ถามบ่อยเกิน
 function unusualQty(code, type, q) {
   const xs = (S.movesByItem.get(code) || []).filter((m) => m.type === type).slice(-20).map((m) => m.qty).sort((a, b) => a - b);
   if (xs.length < 3) return '';
   const med = xs[Math.floor(xs.length / 2)];
-  return med > 0 && q > med * CONFIG.unusualQtyX ? `${type === 'รับ' ? 'รับ' : 'เบิก'} ${qty(code, q)} มากกว่าที่เคย${type === 'รับ' ? 'รับ' : 'เบิก'}ราว ${num(q / med, 1)} เท่า (ปกติครั้งละราว ${qty(code, med)}) ตรวจว่าไม่ได้พิมพ์ศูนย์เกิน` : '';
+  return med > 0 && q > med * CONFIG.unusualQtyX && q > xs[xs.length - 1] * 2 ? `${type === 'รับ' ? 'รับ' : 'เบิก'} ${qty(code, q)} มากกว่าที่เคย${type === 'รับ' ? 'รับ' : 'เบิก'}ราว ${num(q / med, 1)} เท่า (ปกติครั้งละราว ${qty(code, med)}) ตรวจว่าไม่ได้พิมพ์ศูนย์เกิน` : '';
 }
 // ของที่นับเป็นชิ้น ใส่ทศนิยมไม่ได้ ไม่ปัดให้เงียบๆ (QA-013)
 export const intProblem = (it, raw) => (it && isIntUnit(it.unit) && raw !== '' && !Number.isInteger(Number(raw)) ? `${it.unit} นับเป็นชิ้น ใส่จำนวนเต็ม (กรอก ${raw})` : '');
@@ -964,10 +977,25 @@ function voidPanel(ev) {
     <form data-form="void" data-id="${esc(ev.id)}" class="form-grid"><label class="f wide">เหตุผลที่ลบ (ต้องกรอก)<input class="in" name="reason" required placeholder="เช่น บันทึกซ้ำ"></label>
       <div class="form-actions"><button type="submit" class="btn btn-crit">ยืนยันลบ</button><a class="btn" href="#/log">ยกเลิก</a></div></form></section>`;
 }
+// หน้าประวัติแบ่งหน้าละ 100 รายการ ค้นได้ คิดสถานะแก้ลบได้เฉพาะแถวที่แสดง (QA-022 หน้าประวัติช้าเมื่อข้อมูลมาก)
+const LOG_PAGE = 100;
 function viewLog(p) {
   const editId = p.get('edit'), delId = p.get('del');
   const show = p.get('show') || '';
-  const evs = S.events.filter((e) => e.type !== 'noteRead').slice().reverse().filter((e) => !show || e.type === 'amend' || e.type === 'void' || S.evState.get(e.id)?.status !== 'active');
+  const qRaw = (p.get('q') || '').trim(), q = qRaw.toLowerCase();
+  const all = [];
+  for (let i = S.events.length - 1; i >= 0; i--) {
+    const e = S.events[i];
+    if (e.type === 'noteRead') continue;
+    if (show && !(e.type === 'amend' || e.type === 'void' || S.evState.get(e.id)?.status !== 'active')) continue;
+    if (q && !`${e.summary} ${e.reason || ''} ${staff(e.user).name} ${KIND_TH[e.type] || e.type}`.toLowerCase().includes(q)) continue;
+    all.push(e);
+  }
+  const pages = Math.max(1, Math.ceil(all.length / LOG_PAGE));
+  const pg = Math.min(pages, Math.max(1, Math.floor(Number(p.get('page'))) || 1));
+  const evs = all.slice((pg - 1) * LOG_PAGE, pg * LOG_PAGE);
+  const link = (o) => { const x = new URLSearchParams({ show, q: qRaw, ...o }); for (const [k, v] of [...x]) if (!v || (k === 'page' && v === '1')) x.delete(k); return `#/log${[...x].length ? `?${x}` : ''}`; };
+  const pager = pages > 1 ? `<nav class="pager" aria-label="หน้าของประวัติ">${pg > 1 ? `<a class="btn btn-sm" href="${link({ page: String(pg - 1) })}">${I.left}ใหม่กว่า</a>` : ''}<span>หน้า ${num(pg)} จาก ${num(pages)}</span>${pg < pages ? `<a class="btn btn-sm" href="${link({ page: String(pg + 1) })}">เก่ากว่า${I.right}</a>` : ''}</nav>` : '';
   const target = eventById(editId || delId);
   let panel = '';
   if (target) {
@@ -995,9 +1023,10 @@ function viewLog(p) {
   return `<header class="room-head"><div><h1>ประวัติการแก้ไข</h1><p class="sub">ทุกรายการที่บันทึกในเว็บแก้ไขหรือลบได้ ต้องใส่เหตุผล ฉบับเดิมไม่หาย บอกได้ว่าใคร ทำอะไร จากค่าอะไรเป็นค่าอะไร เมื่อไร</p></div>
   <div class="acts"><button type="button" class="btn" data-act="exportLog" ${S.events.length ? '' : 'disabled'}>${I.download}ส่งออก CSV</button><button type="button" class="btn btn-crit" data-act="reset" ${S.events.length && can('reset') ? '' : 'disabled'} title="${can('reset') ? 'ดาวน์โหลดสำรองให้ก่อนล้าง' : 'เฉพาะหัวหน้ากลุ่มงาน'}">ล้างข้อมูลทดลองทั้งหมด</button></div></header>
   ${panel}
-  <section class="panel" aria-labelledby="lg-h"><div class="panel-h"><h2 id="lg-h">รายการที่บันทึกในเว็บ</h2><span class="meta">${evs.length} รายการ เก็บในเบราว์เซอร์เครื่องนี้เท่านั้น</span></div>
-  <div class="filters"><a class="fchip" href="#/log" ${show ? '' : 'aria-current="true"'}>ทั้งหมด</a><a class="fchip" href="#/log?show=changed" ${show ? 'aria-current="true"' : ''}>เฉพาะที่แก้ไขหรือลบ</a></div>
-  ${evs.length ? tableWrap(`<table><thead><tr><th>เวลา</th><th>ผู้ใช้</th><th>ประเภท</th><th>ทำอะไร</th><th>เหตุผล</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>${rows}</tbody></table>`, 'ประวัติการแก้ไข') : '<p class="empty">ยังไม่มี ลองรับของ เบิกของ เขียนใบขอซื้อ ย้ายการ์ด บันทึกผลตรวจ หรือแก้ทะเบียน แล้วกลับมาดูหน้านี้</p>'}</section>`;
+  <section class="panel" aria-labelledby="lg-h"><div class="panel-h"><h2 id="lg-h">รายการที่บันทึกในเว็บ</h2><span class="meta">${num(all.length)} รายการ${q ? ` ที่ตรงกับ "${esc(qRaw)}"` : ''} หน้าละ ${LOG_PAGE} รายการ เก็บในเบราว์เซอร์เครื่องนี้เท่านั้น</span></div>
+  <div class="filters"><a class="fchip" href="${link({ show: '' })}" ${show ? '' : 'aria-current="true"'}>ทั้งหมด</a><a class="fchip" href="${link({ show: 'changed' })}" ${show ? 'aria-current="true"' : ''}>เฉพาะที่แก้ไขหรือลบ</a>
+    <form class="search" data-form="logSearch" role="search"><label class="sr" for="lgq">ค้นประวัติ</label><input class="in" id="lgq" name="q" value="${esc(qRaw)}" maxlength="80" placeholder="ค้นเลขที่ ชื่อรายการ ผู้ใช้ เหตุผล"><input type="hidden" name="show" value="${esc(show)}"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form></div>
+  ${evs.length ? tableWrap(`<table><thead><tr><th>เวลา</th><th>ผู้ใช้</th><th>ประเภท</th><th>ทำอะไร</th><th>เหตุผล</th><th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>${rows}</tbody></table>`, 'ประวัติการแก้ไข') + pager : `<p class="empty">${q || show ? 'ไม่พบรายการตามที่ค้นหรือกรอง' : 'ยังไม่มี ลองรับของ เบิกของ เขียนใบขอซื้อ ย้ายการ์ด บันทึกผลตรวจ หรือแก้ทะเบียน แล้วกลับมาดูหน้านี้'}</p>`}</section>`;
 }
 function submitAmend(form) {
   const target = eventById(form.dataset.id);
@@ -1140,7 +1169,10 @@ function route() {
   const main = $('#main');
   document.body.classList.toggle('is-doc', id === 'doc');
   closeDialog();
-  main.innerHTML = storeBanner() + (room && !canEnter(room, user.role) ? viewLocked(room) : VIEWS[id](params, room));
+  navVisit(location.hash);
+  const view = room && !canEnter(room, user.role) ? viewLocked(room) : VIEWS[id](params, room);
+  main.innerHTML = storeBanner() + (id === 'doc' ? '' : backBar()) + view;
+  navTitle(main);
   if (slipState.slip) slipState.slip.shown = true;
   const title = room ? room.title : TITLES[id] || TOOLS.find((t) => t.id === id)?.title || '';
   document.title = `${title} | ระบบหลังบ้านโรงงานยาสมุนไพร (ข้อมูลจำลอง)`;
@@ -1161,6 +1193,56 @@ const HANDLERS = {
   submit: { ...buyHandlers.submit, ...registerHandlers.submit, ...notesHandlers.submit },
   change: { ...buyHandlers.change, ...registerHandlers.change },
 };
+
+// ---------- ความยาวข้อความ (QA-023) ----------
+// ทุกช่องข้อความมีเพดาน: ช่องบรรทัดเดียว 300 ตัวอักษร ช่องข้อความยาว 5,000 ตัวอักษร (หรือตาม maxlength ของช่อง)
+const TEXT_MAX = { input: 300, textarea: 5000 };
+function tooLong(form) {
+  for (const el of form.elements) {
+    if (!el.name || el.disabled) continue;
+    const isArea = el.tagName === 'TEXTAREA';
+    if (!isArea && !(el.tagName === 'INPUT' && ['text', 'search', 'hidden'].includes(el.type))) continue;
+    const max = Number(el.getAttribute('maxlength')) || (isArea ? TEXT_MAX.textarea : el.type === 'hidden' ? 2000 : TEXT_MAX.input);
+    if (el.value.length > max) {
+      const NAME_TH = { body: 'ข้อความ', subject: 'เรื่อง', reason: 'เหตุผล', note: 'หมายเหตุ', ref: 'อ้างถึงเลขที่', to: 'จ่ายให้', purpose: 'เหตุผลความจำเป็น', detail: 'รายละเอียด' };
+      const label = (el.closest('label')?.childNodes[0]?.textContent || NAME_TH[el.name] || el.name).trim();
+      if (el.type !== 'hidden') { el.setAttribute('aria-invalid', 'true'); el.focus(); }
+      return `ช่อง${label} ยาว ${num(el.value.length)} ตัวอักษร เกินที่รับได้ ${num(max)} ตัวอักษร ตัดให้สั้นลงก่อนบันทึก`;
+    }
+  }
+  return '';
+}
+
+// ---------- ปุ่มย้อนกลับไปหน้าที่เพิ่งมา (พี่ขอเพิ่ม 2026-11-06) ----------
+// จำหน้าที่เปิดเรียงตามเวลาในแท็บนี้ เปลี่ยนแค่ตัวกรองหรือคำค้นถือเป็นหน้าเดิม กดย้อนกลับแล้วถอยทีละหน้า
+const NAV_KEY = 'hfd-nav';
+const FILTER_PARAMS = ['q', 'kind', 'lv', 'only', 'all', 'show', 'step', 'page', 'st', 'more', 'inv', 'r'];
+let navStack = (() => { try { const a = JSON.parse(sessionStorage.getItem(NAV_KEY) || '[]'); return Array.isArray(a) ? a.slice(-50) : []; } catch { return []; } })();
+let navBackTo = null;
+const pageKey = (h) => { const m = String(h || '').match(/^#\/([^?]*)\??(.*)$/); if (!m) return String(h || ''); const x = new URLSearchParams(m[2]); for (const k of FILTER_PARAMS) x.delete(k); return `${m[1]}?${[...x].map(([k, v]) => `${k}=${v}`).sort().join('&')}`; };
+function navVisit(hash) {
+  const key = pageKey(hash);
+  if (navBackTo && key === navBackTo) { while (navStack.length > 1 && navStack[navStack.length - 1].key !== key) navStack.pop(); }
+  const top = navStack[navStack.length - 1];
+  if (top && top.key === key) top.hash = hash; else navStack.push({ key, hash, title: '' });
+  navBackTo = null;
+  if (navStack.length > 50) navStack = navStack.slice(-50);
+  nav.prev = navStack.length > 1 ? navStack[navStack.length - 2] : null;
+}
+function navTitle(main) {
+  const top = navStack[navStack.length - 1];
+  if (!top) return;
+  const h1 = (main.querySelector('h1')?.textContent || document.title.split('|')[0]).replace(/^ห้องทำงาน/, '').replace(/\s+/g, ' ').trim();
+  const tab = main.querySelector('.seg [aria-current="page"]')?.textContent.trim();
+  top.title = `${h1.slice(0, 48)}${tab ? ` (${tab.replace(/\s*\(\d+\)$/, '')})` : ''}`;
+  try { sessionStorage.setItem(NAV_KEY, JSON.stringify(navStack)); } catch { /* ไม่จำก็ใช้ได้ */ }
+}
+function goBack() {
+  const prev = nav.prev;
+  if (!prev) return;
+  navBackTo = prev.key;
+  if (location.hash === prev.hash) route(); else location.hash = prev.hash;
+}
 
 // ---------- ฟอร์มที่กรอกค้าง (QA-029) ----------
 // จำค่าตอนวาดหน้า ถ้าจะออกจากหน้าโดยค่าเปลี่ยนแต่ยังไม่มีการบันทึก ให้ถามก่อน (ช่องเลือกรายการที่พาเปลี่ยนหน้าเองไม่นับ)
@@ -1193,7 +1275,19 @@ function sysAction(kind) {
   }
 }
 
+// ช่องตัวเลข: ข้อความเตือนภาษาไทยที่บอกชัดว่าต้องพิมพ์อย่างไร แทนข้อความของเบราว์เซอร์ (QA-030)
+function numberMessage(el) {
+  const v = el.validity;
+  if (v.badInput || v.valueMissing) return 'ใส่จำนวนเป็นตัวเลขอารบิก เช่น 1000 ไม่ใส่จุลภาค และไม่ใช้เลขไทย';
+  if (v.stepMismatch) return el.step === '1' ? 'หน่วยนี้นับเป็นชิ้น ใส่จำนวนเต็ม' : 'ทศนิยมเกินที่ช่องนี้รับได้';
+  if (v.rangeUnderflow) return `ต้องไม่น้อยกว่า ${el.min}`;
+  if (v.rangeOverflow) return `ต้องไม่เกิน ${el.max}`;
+  return '';
+}
+
 function bind() {
+  document.addEventListener('invalid', (e) => { const el = e.target; if (el instanceof HTMLInputElement && el.type === 'number') { el.setCustomValidity(''); const m = numberMessage(el); if (m) el.setCustomValidity(m); } }, true);
+  document.addEventListener('input', (e) => { const el = e.target; if (el instanceof HTMLInputElement && el.type === 'number') el.setCustomValidity(''); if (el.getAttribute?.('aria-invalid') === 'true' && !el.dataset.act) el.removeAttribute('aria-invalid'); }, true);
   let curHash = location.hash;
   window.addEventListener('hashchange', () => {
     const next = location.hash;
@@ -1230,6 +1324,7 @@ function bind() {
   const COMMIT_ACTS = new Set(['move', 'release', 'pay', 'prStep', 'prReject', 'toggleActive', 'reset', 'become']);
   let lastTap = -1e9;
   main.addEventListener('click', (e) => {
+    if (e.target.closest('[data-back]') && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); return goBack(); }
     const sys = e.target.closest('[data-sys]');
     if (sys) return guard(() => sysAction(sys.dataset.sys));
     const b = e.target.closest('[data-act]');
@@ -1284,6 +1379,8 @@ function bind() {
   });
   function submitForm(form, e) {
     const kind = form.dataset.form;
+    const long = tooLong(form);
+    if (long) return toast(long, 'warn');
     if (HANDLERS.submit[kind]) return HANDLERS.submit[kind](form, e);
     const f = new FormData(form);
     if (kind === 'receive') submitNew('receive', { item: codeOf(f.get('item')), po: f.get('po') || '', supplier: f.get('supplier'), qty: f.get('qty'), exp: f.get('exp') || '', close: f.get('close') ? '1' : '' });
@@ -1297,6 +1394,8 @@ function bind() {
     if (kind === 'pick') { const code = codeOf(f.get('item')); if (S.items.get(code)) setHash(form.dataset.to, { tab: form.dataset.tab, item: code }); }
     if (kind === 'boardSearch') { const x = new URLSearchParams(location.hash.split('?')[1] || ''); const q = String(f.get('q') || '').trim(); if (q) x.set('q', q); else x.delete('q'); x.delete('job'); location.hash = `#/${form.dataset.here}?${x}`; }
     if (kind === 'salesSearch') setHash('sales', { tab: 'sales', q: String(f.get('q') || '').trim() });
+    if (kind === 'logSearch') setHash('log', { show: f.get('show') || '', q: String(f.get('q') || '').trim() });
+    if (kind === 'arSearch') setHash('sales', { tab: 'ar', inv: String(f.get('inv') || '').trim() });
     if (kind === 'docOpen') { const o = { type: form.dataset.type }; for (const [k, v] of f) o[k] = v; setHash('doc', o); }
     if (kind === 'planSearch') setHash(form.dataset.room, { tab: 'plan', kind: f.get('kind'), q: String(f.get('q') || '').trim() });
     if (kind === 'fgSearch') setHash('sales', { tab: 'stock', q: String(f.get('q') || '').trim() });

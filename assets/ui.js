@@ -1,5 +1,5 @@
 // ชิ้นส่วนหน้าจอที่ทุกห้องใช้ร่วมกัน: ตัวเลข ตราประทับ คูปอง สำเนาคาร์บอน ปุ่มเลือกรายการ และการตรวจสิทธิ์
-import { CAN, DEPTS, ROLE_ABBR } from './config.js';
+import { CAN, DEPTS, ROLE_ABBR, ROOMS, canEnter } from './config.js';
 import { S, currentUser, isIntUnit, isFG, thaiDate, thaiLongDate, daysBetween, staff } from './data.js';
 
 export const $ = (sel, root = document) => root.querySelector(sel);
@@ -151,7 +151,10 @@ export function storeBanner() {
 }
 
 // ตัวนำทาง (app.js ตั้งค่าให้ตอนเริ่ม) เพื่อให้ทุกส่วนสั่งวาดหน้าใหม่ได้
-export const nav = { route: () => {} };
+export const nav = { route: () => {}, prev: null };
+// ปุ่มย้อนกลับไปหน้าที่เพิ่งมา บอกชื่อหน้าที่จะกลับไป (พี่ขอ 2026-11-06)
+export const backLink = (cls = 'back') => (nav.prev ? `<a class="${cls}" href="${esc(nav.prev.hash)}" data-back>${I.left}กลับไป ${esc(nav.prev.title || 'หน้าก่อน')}</a>` : '');
+export const backBar = () => (nav.prev ? `<nav class="backbar" aria-label="ย้อนกลับ">${backLink()}</nav>` : '');
 // การกระทำที่ app.js ลงทะเบียนไว้ให้ส่วนอื่นเรียกใช้ (เลี่ยงการ import วนกลับมาที่ app.js)
 export const actions = { submitNew: () => {}, guard: (fn) => fn() };
 export function setHash(id, o = {}) {
@@ -198,18 +201,30 @@ function routeBar(t) {
 }
 // รหัส เลขที่ผลิต เลขรับ ใบสั่งซื้อ ใบขอซื้อ ไม่ให้ตัดบรรทัดกลางรหัส
 const keepCodes = (html) => html.replace(/((?:[A-Z]{1,3}|[ก-ฮ]{2})\d{2}-\d{3,4}|\d{8})/g, '<span class="nowrap">$1</span>');
+// การ์ดที่ผู้ใช้ตอนนี้ทำเองไม่ได้ (ห้องปลายทางล็อก) แสดงเป็นแจ้งให้ทราบ บอกว่าฝ่ายไหนเป็นคนทำ (QA-033)
+function goOrInfo(a) {
+  const id = String(a.go || '').split('?')[0];
+  const room = ROOMS.find((r) => r.id === id);
+  if (room && !canEnter(room, currentUser().role)) return `<span class="go go-info">${I.lock}แจ้งให้ทราบ ${esc(room.id === 'overview' ? 'หัวหน้ากลุ่มงาน' : `ฝ่าย${room.title.replace(/^ฝ่าย/, '')}`)}เป็นผู้ทำ</span>`;
+  return `<a class="go" href="#/${a.go}">${esc(a.actionText)}${I.arrow}</a>`;
+}
 export function coupon(a) {
   return `<article class="coupon lv-${a.level}">
     <div class="stub"><span class="stub-k">${esc(a.stub.k)}</span><span class="stub-n">${esc(a.stub.n)}${a.stub.u ? `<small>${esc(a.stub.u)}</small>` : ''}</span><span class="stub-ref">${esc(a.stub.ref || '')}</span></div>
     <div class="cbody"><h3><span class="sr">${LEVEL_TEXT[a.level]} </span>${subjectHref(a) ? `<a class="c-link" href="${subjectHref(a)}">${keepCodes(esc(a.title))}</a>` : keepCodes(esc(a.title))}</h3>
       <dl class="fields">${a.fields.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>
       ${a.timeline ? routeBar(a.timeline) : ''}
-      <a class="go" href="#/${a.go}">${esc(a.actionText)}${I.arrow}</a></div>
+      ${goOrInfo(a)}</div>
     ${stamp(a.stamp, a.level)}
   </article>`;
 }
-const compactAlert = (a) => `<li>${chip(a.stamp, a.level)}<span class="t">${subjectHref(a) ? `<a href="${subjectHref(a)}">${keepCodes(esc(a.title))}</a>` : keepCodes(esc(a.title))}<span class="d">${esc(a.detail)}</span></span><a href="#/${a.go}">${esc(a.actionText)}</a></li>`;
-export function alertsBlock(alerts, emptyText) {
+const compactAlert = (a) => `<li>${chip(a.stamp, a.level)}<span class="t">${subjectHref(a) ? `<a href="${subjectHref(a)}">${keepCodes(esc(a.title))}</a>` : keepCodes(esc(a.title))}<span class="d">${esc(a.detail)}</span></span>${goOrInfo(a).replace('class="go"', 'class="go-l"')}</li>`;
+export function alertsBlock(alerts, emptyText, opt = {}) {
+  // แท็บที่เป็นฟอร์ม: พับแจ้งเตือนเป็นแถบเดียว ฟอร์มขึ้นก่อน (QA-026)
+  if (opt.fold && alerts.length) {
+    const c = alerts.filter((a) => a.level === 'crit').length;
+    return `<details class="alerts-fold"><summary>แจ้งเตือนของฝ่าย ${alerts.length} เรื่อง${c ? ` วิกฤต ${c} เรื่อง` : ''} กดเพื่อดู</summary><ul class="alist">${alerts.map(compactAlert).join('')}</ul></details>`;
+  }
   if (!alerts.length) return `<p class="alerts-quiet">${chip('ปกติ', 'ok')} ${esc(emptyText || 'ไม่มีแจ้งเตือนของฝ่ายวันนี้ ระบบจะขึ้นคูปองเมื่อมีของใกล้หมด ของมาไม่ทัน ของใกล้หมดอายุ เครื่องมือใกล้ครบกำหนด หรืองานหยุด')}</p>`;
   const top = alerts.slice(0, 3);
   const rest = alerts.slice(3);

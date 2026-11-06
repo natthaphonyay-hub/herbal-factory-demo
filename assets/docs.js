@@ -2,7 +2,7 @@
 // และชุดแบบฟอร์มจัดซื้อวิธีเฉพาะเจาะจง (OF06) ช่องที่ระบบไม่มีข้อมูลเว้นว่างให้เขียนเอง ไม่เติมเดา
 import { ORG, PROC, PROC_STEPS, REQ_FORM } from './config.js';
 import { S, D, staff, isFG, active, producing, thaiDate, thaiFullDate, daysBetween, addDays, fyOf, costOf, bomVersions, assetDue, prStage } from './data.js';
-import { esc, num, num2, baht, qn, qty, short, I, chip, supName, custName, head, itemPicker } from './ui.js';
+import { esc, num, num2, baht, qn, qty, short, I, chip, supName, custName, head, itemPicker, nav, backLink } from './ui.js';
 import { forecastOf, nextMonths } from './plan.js';
 
 const TYPES = [
@@ -332,7 +332,7 @@ const RENDER = { fm01, fm02, fm19, req, fm23, fm35, fm43, fm08, fm46, products, 
 export function viewDocs(p) {
   const type = p.get('type');
   if (!type || !RENDER[type]) return docList();
-  return `<div class="doc-bar"><a class="btn" href="#/docs">${I.left}กลับไปรายการเอกสาร</a><span class="doc-bar-t">${esc(TITLE[type])}</span><button type="button" class="btn btn-solid" data-act="print">${I.print}พิมพ์หรือบันทึกเป็น PDF</button></div>
+  return `<div class="doc-bar">${nav.prev ? backLink('btn') : `<a class="btn" href="#/docs">${I.left}กลับไปรายการเอกสาร</a>`}<span class="doc-bar-t">${esc(TITLE[type])}</span><button type="button" class="btn btn-solid" data-act="print">${I.print}พิมพ์หรือบันทึกเป็น PDF</button></div>
     <div class="papers">${RENDER[type](p)}</div>`;
 }
 export { chip, daysBetween, PROC_STEPS };

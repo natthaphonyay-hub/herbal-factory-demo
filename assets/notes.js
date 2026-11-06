@@ -36,10 +36,10 @@ export function viewNotes(p) {
     right = `<section class="panel" aria-labelledby="nc-h"><div class="panel-h"><h2 id="nc-h">${replyTo ? 'ตอบกลับ' : 'เขียนบันทึกถึงฝ่าย'}</h2><a href="#/notes">ยกเลิก</a></div>
       <form data-form="note" class="form-grid" data-reply="${esc(replyTo?.id || '')}">
         ${replyTo ? `<input type="hidden" name="to_user" value="${esc(replyTo.from)}"><label class="f">ถึง<input class="in" value="${esc(short(staff(replyTo.from).name))} ${esc(staff(replyTo.from).role)}" disabled></label>` : `<label class="f">ถึงฝ่าย<select class="in" name="to_room" required>${ROOMS.filter((r) => r.id !== 'overview').map((r) => `<option value="${r.id}" ${r.id === toRoom ? 'selected' : ''}>${esc(r.title)}</option>`).join('')}<option value="overview" ${toRoom === 'overview' ? 'selected' : ''}>หัวหน้ากลุ่มงาน และผู้อำนวยการ</option></select></label>`}
-        <label class="f">อ้างถึงเลขที่ (ถ้ามี)<input class="in" name="ref" list="noteRefs" value="${esc(p.get('ref') || replyTo?.ref || '')}" placeholder="เลขที่ผลิต ใบสั่งซื้อ ใบขอซื้อ หรือเลขงาน"></label>
+        <label class="f">อ้างถึงเลขที่ (ถ้ามี)<input class="in" name="ref" list="noteRefs" maxlength="60" value="${esc(p.get('ref') || replyTo?.ref || '')}" placeholder="เลขที่ผลิต ใบสั่งซื้อ ใบขอซื้อ หรือเลขงาน"></label>
         <datalist id="noteRefs">${refs.map((r) => `<option value="${esc(r)}">`).join('')}</datalist>
-        <label class="f wide">เรื่อง<input class="in" name="subject" required value="${esc(replyTo ? `ตอบ: ${replyTo.subject.replace(/^ตอบ: /, '')}` : '')}"></label>
-        <label class="f wide">ข้อความ<textarea class="in ta" name="body" required rows="6"></textarea></label>
+        <label class="f wide">เรื่อง<input class="in" name="subject" required maxlength="200" value="${esc(replyTo ? `ตอบ: ${replyTo.subject.replace(/^ตอบ: /, '')}` : '')}"></label>
+        <label class="f wide">ข้อความ<textarea class="in ta" name="body" required rows="6" maxlength="5000"></textarea></label>
         <div class="form-actions"><button type="submit" class="btn btn-solid">ส่งบันทึก</button></div>
         <p class="form-note wide">ส่งแล้วแก้หรือลบไม่ได้ ระบบเก็บเวลาส่งและเวลาที่ผู้รับเปิดอ่านเป็นหลักฐาน</p></form></section>`;
   } else if (open && (open.from === me || inbox.includes(open))) {
@@ -75,7 +75,9 @@ function submitNote(form) {
   const f = new FormData(form);
   const subject = String(f.get('subject') || '').trim(), body = String(f.get('body') || '').trim();
   if (!subject || !body) return toast('ใส่เรื่องและข้อความก่อน', 'warn');
-  const id = `N${Date.now().toString(36)}`;
+  // เพดานความยาว (QA-023): เรื่อง 200 ข้อความ 5,000 ตัวอักษร (บันทึกราว 2 หน้า)
+  if (subject.length > 200 || body.length > 5000 || String(f.get('ref') || '').length > 60) return toast(`ข้อความยาวเกิน (เรื่องไม่เกิน 200 ข้อความไม่เกิน 5,000 ตัวอักษร ตอนนี้ ${body.length.toLocaleString('th-TH')})`, 'warn');
+  const id = `N${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
   const note = { id, to_room: f.get('to_room') || '', to_user: f.get('to_user') || '', subject, body, ref: String(f.get('ref') || '').trim(), reply_to: form.dataset.reply || '' };
   commit({ type: 'note', summary: `บันทึกถึง ${note.to_user ? short(staff(note.to_user).name) : roomTitle(note.to_room)}: ${subject}`, effects: { notes: [note] } });
   toast(`ส่งบันทึกแล้ว ${currentUser() ? '' : ''}`.trim());

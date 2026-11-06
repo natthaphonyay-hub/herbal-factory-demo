@@ -42,9 +42,11 @@ function historyOf(pred, title = 'ประวัติการแก้ทะ�
 
 // ================= หน้าทะเบียน =================
 export function viewRegisters(p) {
-  const tab = p.get('tab') || 'products';
+  const VIEWS_R = { products: regProducts, assets: regAssets, suppliers: (q) => regSimple(q, 'suppliers'), customers: (q) => regSimple(q, 'customers'), items: regItems };
+  // ลิงก์ที่ชื่อแท็บผิดหรือลิงก์เก่า กลับไปแท็บแรก ไม่ให้หน้าพัง (QA-025)
+  const tab = VIEWS_R[p.get('tab')] ? p.get('tab') : 'products';
   const tabs = [['products', 'ผลิตภัณฑ์'], ['assets', 'เครื่องมือ FM-43'], ['suppliers', 'ผู้ขาย FM-46'], ['customers', 'ลูกค้า'], ['items', 'วัสดุและวัตถุดิบ']];
-  const body = { products: regProducts, assets: regAssets, suppliers: (q) => regSimple(q, 'suppliers'), customers: (q) => regSimple(q, 'customers'), items: regItems }[tab](p);
+  const body = VIEWS_R[tab](p);
   return head('ทะเบียน', [], '', 'ทุกทะเบียนแก้ไขได้ ต้องใส่เหตุผล ฉบับเดิมเก็บในประวัติ ลบ = เลิกใช้ ข้อมูลเก่ายังอ้างถึงได้') + slipBlock('registers') + seg('registers', tabs, tab) + body;
 }
 
