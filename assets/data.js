@@ -187,6 +187,8 @@ export function commit(event) {
       if (!INDEPENDENT.has(event.type)) throw new SaveError('มีการบันทึกจากแท็บหรือหน้าต่างอื่นเมื่อสักครู่ ระบบโหลดข้อมูลล่าสุดแล้ว ตรวจหน้าจออีกครั้งแล้วกดบันทึกใหม่', 'stale');
     }
   }
+  // กันรายการแก้ไขหรือบันทึกที่ไม่มีผลกับข้อมูลหลุดเข้าไป (ฉบับเดิมจะถูกแทนด้วยรายการว่าง)
+  if (event.type !== 'void' && !event.effects) throw new SaveError('รายการนี้ไม่มีข้อมูลที่จะบันทึก ระบบไม่บันทึก', 'size');
   const ev = { id: `E${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, at: new Date().toISOString(), user: S.user, ...event };
   // ขนาดต่อรายการมีเพดาน กันข้อความยาวผิดปกติทำหน้าค้างหรือถมที่เก็บ (QA-023 ข้อกำหนด R8)
   if (JSON.stringify(ev).length > 60000) throw new SaveError('รายการนี้ใหญ่ผิดปกติ (ข้อความยาวเกิน) ระบบไม่บันทึก ตัดข้อความให้สั้นลงแล้วบันทึกใหม่', 'size');

@@ -748,7 +748,7 @@ function buildReceive(inp, keep = {}) {
     const po = S.pos.find((x) => x.po_no === inp.po);
     if (!po) return { error: `ไม่พบใบสั่งซื้อ ${inp.po}` };
     if (po.item_code !== inp.item) return { error: `${inp.po} สั่ง ${po.item_code} ${S.items.get(po.item_code)?.name || ''} ไม่ใช่ ${it.name} เลือกใบสั่งซื้อให้ตรงรายการ หรือเลือกไม่อ้าง` };
-    if (po.received_date) return { error: `${inp.po} รับของครบและปิดใบแล้ว` };
+    if (po.received_date && !keep.lot) return { error: `${inp.po} รับของครบและปิดใบแล้ว` };
     if (po.supplier_id !== inp.supplier) return { error: `${inp.po} สั่งจาก ${supName(po.supplier_id)} ผู้ขายที่เลือกไม่ตรงกับใบสั่งซื้อ` };
   }
   const date = keep.date || S.today;
@@ -1037,13 +1037,32 @@ function submitAmend(form) {
   const reason = String(f.get('reason') || '').trim();
   if (!reason) return toast('ใส่เหตุผลที่แก้ไขก่อน', 'warn');
   const inp = { ...target.input };
+  delete inp.sure; // ค่าที่แก้ใหม่ต้องผ่านการตรวจค่าผิดปกติใหม่ ไม่ใช้การยืนยันของฉบับเดิม
   for (const [k, v] of f) if (k !== 'reason') inp[k] = v;
+  doAmend(target, type, inp, reason);
+}
+function doAmend(target, type, inp, reason) {
+  const b = BUILD[type];
   if (!can(b.key(inp))) return deny(b.key(inp), `แก้ไข${b.what}`);
   const info = editInfo(target);
   if (!info.ok) return toast(info.why, 'warn');
   const r = withoutEvent(target.id, () => b.build(inp, keepOf(target)));
   if (r.error) return toast(r.error, 'warn');
-  const diff = Object.keys(inp).filter((k) => String(inp[k]) !== String(target.input[k])).map((k) => `${k} ${target.input[k] || '-'} เป็น ${inp[k] || '-'}`).join(', ');
+  // ค่าที่แก้ผิดปกติ (เช่น จำนวนมากกว่าปกติมาก) ถามยืนยันก่อนเหมือนตอนบันทึกใหม่ ห้ามบันทึกการแก้ไขที่ไม่มีผลกับข้อมูล
+  if (r.confirm) {
+    return openDialog({
+      title: r.confirm.title || 'ตรวจอีกครั้งก่อนบันทึกการแก้ไข', ok: 'ตรวจแล้ว ถูกต้อง บันทึกการแก้ไข', cancel: 'กลับไปแก้',
+      body: `<ul class="dlg-list">${r.confirm.msgs.map((m) => `<li>${esc(m)}</li>`).join('')}</ul>${r.confirm.field ? `<label class="f">${esc(r.confirm.field.label)}<input class="in" name="${esc(r.confirm.field.name)}" maxlength="300" autofocus></label>` : ''}`,
+      onOk: (fd) => guard(() => {
+        const extra = { sure: '1' };
+        if (r.confirm.field) { const v = String(fd.get(r.confirm.field.name) || '').trim(); if (!v) return `กรอก${r.confirm.field.label}ก่อน`; extra[r.confirm.field.name] = v; }
+        doAmend(target, type, { ...inp, ...extra }, reason);
+        return true;
+      }),
+    });
+  }
+  if (!r.effects) return toast('สร้างรายการแก้ไขไม่ได้ ลองใหม่', 'warn');
+  const diff = Object.keys(inp).filter((k) => k !== 'sure' && String(inp[k]) !== String(target.input[k] ?? '')).map((k) => `${k} ${target.input[k] || '-'} เป็น ${inp[k] || '-'}`).join(', ');
   commit({ type: 'amend', of: type, target: target.id, input: inp, reason, before: target.summary, summary: `แก้ไข${b.what}: ${r.summary}${diff ? ` (${diff})` : ''}`, effects: r.effects });
   toast('บันทึกการแก้ไขแล้ว ฉบับเดิมเก็บไว้ในประวัติ');
   location.hash = '#/log?show=changed';
