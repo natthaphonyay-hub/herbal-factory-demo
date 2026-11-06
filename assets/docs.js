@@ -2,7 +2,7 @@
 // และชุดแบบฟอร์มจัดซื้อวิธีเฉพาะเจาะจง (OF06) ช่องที่ระบบไม่มีข้อมูลเว้นว่างให้เขียนเอง ไม่เติมเดา
 import { ORG, PROC, PROC_STEPS, REQ_FORM } from './config.js';
 import { S, D, staff, isFG, active, producing, thaiDate, thaiFullDate, daysBetween, addDays, fyOf, costOf, bomVersions, assetDue, prStage } from './data.js';
-import { esc, num, num2, baht, qn, qty, short, I, chip, supName, custName, head, itemPicker, nav, backLink } from './ui.js';
+import { esc, num, num2, baht, qn, qty, short, I, chip, supName, custName, head, itemPicker, nav, backLink, absUrl } from './ui.js';
 import { forecastOf, nextMonths } from './plan.js';
 
 const TYPES = [
@@ -18,6 +18,8 @@ const TYPES = [
     ['fm46', 'FM-46 ทะเบียนผู้ขายที่ได้รับการคัดเลือก', ''],
   ]],
   ['ผลิตภัณฑ์', [['products', 'ทะเบียนผลิตภัณฑ์', ''], ['formula', 'สูตรและต้นทุนต่อหน่วย', 'เลือกผลิตภัณฑ์']]],
+  // ป้ายล็อตพร้อม QR (รายงานเทียบโปรแกรมดังข้อ A8) เป็นแบบตัวอย่าง ยังไม่ใช่แบบฟอร์มควบคุมของโรงงาน จึงไม่ใส่รหัส FM
+  ['ป้ายล็อต', [['lot-label', 'ป้ายล็อตพร้อม QR (ตัวอย่าง)', 'เลือกเลขที่ผลิตหรือเลขรับ']]],
   ['จัดซื้อวิธีเฉพาะเจาะจง', [
     ['pr-memo', 'บันทึกขออนุมัติจัดซื้อ', 'เลือกใบขอซื้อ'], ['pr-report', 'รายงานขออนุมัติจัดซื้อโดยวิธีเฉพาะเจาะจง', 'เลือกใบขอซื้อ'],
     ['po', 'ใบสั่งซื้อ', 'เลือกใบขอซื้อ'], ['inspect', 'ใบตรวจรับพัสดุ', 'เลือกใบขอซื้อ'], ['pay', 'บันทึกขออนุมัติเบิกจ่าย', 'เลือกใบขอซื้อ'],
@@ -80,6 +82,7 @@ function picker(type) {
   if (type === 'formula') return sel('code', [...S.items.values()].filter(isFG).map((it) => opt(it.code, `${it.code} ${it.name}`)).join(''));
   if (['pr-memo', 'pr-report', 'po', 'inspect', 'pay'].includes(type)) return sel('id', prs.map((r) => opt(r.pr_no, `${r.pr_no} ${S.items.get(r.item_code).name} ${prStage(r).title}`)).join(''));
   if (type === 'fy-plan') { const fy = fyOf(S.today); return sel('fy', [fy + 1, fy].map((y) => opt(y, `ปีงบ ${y}`)).join('')); }
+  if (type === 'lot-label') return sel('lot', S.lots.slice(-60).reverse().map((l) => opt(l.lot_no, `${l.lot_no} ${S.items.get(l.item_code)?.name || ''} ${l.status}`)).join(''));
   return '';
 }
 function docList() {
@@ -333,7 +336,26 @@ function fyPlan(p) {
     + `<div class="signs three">${sign('ผู้จัดทำ')}${sign('หัวหน้ากลุ่มงาน')}${sign('ผู้อำนวยการ อนุมัติ')}</div>`, { landscape: true, sub: `${rows.length} รายการ งบประมาณรวม ${baht(total)} บาท จากพยากรณ์ ณ ${esc(thaiFullDate(S.today))}` });
 }
 
-const RENDER = { fm01, fm02, fm19, req, fm23, fm35, fm43, fm08, fm46, products, formula, 'pr-memo': prMemo, 'pr-report': prReport, po: poDoc, inspect: inspectDoc, pay: payDoc, 'stock-summary': stockSummary, 'fy-plan': fyPlan };
+// ป้ายล็อตพร้อม QR: ป้ายบอกว่าเป็นของอะไร ล็อตไหน ส่วนป้ายสถานะ (รอปล่อยผ่าน ตรวจสอบแล้ว ไม่ผ่าน) ไม่พิมพ์ลงป้ายนี้
+// เพราะสถานะเปลี่ยนหลังพิมพ์ ให้สแกน QR ดูสถานะล่าสุดในระบบ ป้ายสถานะจริงยังติดแยกตาม SOP ของโรงงาน
+function lotLabel(p) {
+  const lot = S.lotMap.get(p.get('lot')) || S.lots[S.lots.length - 1];
+  const it = S.items.get(lot.item_code);
+  const src = lot.source === 'ผลิต' ? `ผลิตตามงาน ${lot.source_ref}` : lot.source === 'รับซื้อ' ? `รับซื้อจาก ${supName(lot.source_ref)}` : lot.source === 'ใบสั่งซื้อ' ? `ซื้อตาม ${lot.source_ref}` : lot.source;
+  const url = absUrl(`#/trace?lot=${encodeURIComponent(lot.lot_no)}`);
+  return paper('', 'ป้ายล็อต', `<p class="label-note">แบบตัวอย่างจากระบบต้นแบบ ยังไม่ใช่แบบฟอร์มควบคุมของโรงงาน ถ้าจะใช้จริงต้องแก้แบบฟอร์มผ่านการควบคุมเอกสารก่อน</p>
+    <div class="lot-label">
+      <div class="ll-main">
+        <div class="ll-k">${esc(it.kind)} รหัส ${esc(it.code)}</div>
+        <div class="ll-name">${esc(it.name)}</div>
+        <div class="ll-no">${esc(lot.lot_no)}</div>
+        <dl class="ll-f"><div><dt>จำนวนรับ</dt><dd>${esc(qty(it.code, lot.qty_in))}</dd></div><div><dt>วันรับหรือผลิต</dt><dd>${esc(thaiDate(lot.date_in))}</dd></div><div><dt>หมดอายุ</dt><dd>${lot.exp_date ? esc(thaiDate(lot.exp_date)) : 'ไม่กำหนด'}</dd></div><div><dt>ที่มา</dt><dd>${esc(src)}</dd></div></dl>
+        <p class="ll-st">ป้ายสถานะ ดูล่าสุดจากการสแกน QR</p>
+      </div>
+      <div class="ll-qr"><span class="qr" data-qr="${esc(url)}" role="img" aria-label="QR เปิดหน้าล็อต ${esc(lot.lot_no)}"></span><span>สแกนเปิดหน้าล็อต</span></div>
+    </div>`);
+}
+const RENDER = { fm01, fm02, fm19, req, fm23, fm35, fm43, fm08, fm46, products, formula, 'pr-memo': prMemo, 'pr-report': prReport, po: poDoc, inspect: inspectDoc, pay: payDoc, 'stock-summary': stockSummary, 'fy-plan': fyPlan, 'lot-label': lotLabel };
 export function viewDocs(p) {
   const type = p.get('type');
   if (!type || !RENDER[type]) return docList();

@@ -83,4 +83,21 @@ function submitNote(form) {
   toast(`ส่งบันทึกแล้ว ${currentUser() ? '' : ''}`.trim());
   setHash('notes', { id, box: 'sent' });
 }
-export const notesHandlers = { click: {}, submit: { note: submitNote } };
+// บันทึกจากแผงความเคลื่อนไหวในหน้างาน รายการ หรือล็อต (รายงานเทียบโปรแกรมดังข้อ A6 แบบช่องเขียนของ Odoo Chatter)
+// อ้างเลขของหน้านั้นให้เอง เรื่องตั้งให้จากเลขและชื่อ ส่งแล้วอยู่หน้าเดิม บันทึกขึ้นในแผงทันที ลบหรือแก้ไม่ได้เหมือนบันทึกถึงฝ่ายทุกฉบับ
+function submitQuickNote(form) {
+  const f = new FormData(form);
+  const body = String(f.get('body') || '').trim();
+  const ref = form.dataset.ref || '';
+  const toRoom = String(f.get('to_room') || '');
+  if (!body) return toast('ใส่ข้อความก่อนส่ง', 'warn');
+  if (body.length > 1000) return toast(`ข้อความยาวเกิน 1,000 ตัวอักษร ตอนนี้ ${body.length.toLocaleString('th-TH')} ถ้ายาวกว่านี้ใช้หน้าบันทึกถึงฝ่าย`, 'warn');
+  if (!ROOMS.some((r) => r.id === toRoom)) return toast('เลือกฝ่ายที่จะส่งถึงก่อน', 'warn');
+  const id = `N${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+  const subject = `เรื่อง${form.dataset.label || ''} ${ref}`.slice(0, 200);
+  const note = { id, to_room: toRoom, to_user: '', subject, body, ref, reply_to: '' };
+  commit({ type: 'note', summary: `บันทึกถึง ${roomTitle(toRoom)}: ${subject}`, effects: { notes: [note] } });
+  toast(`ส่งบันทึกถึง${roomTitle(toRoom)}แล้ว อยู่ในแผงความเคลื่อนไหวและกล่องบันทึกของฝ่าย`);
+  nav.route();
+}
+export const notesHandlers = { click: {}, submit: { note: submitNote, noteQuick: submitQuickNote } };

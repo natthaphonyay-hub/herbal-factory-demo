@@ -16,6 +16,21 @@ export const baht = (n) => Number(n || 0).toLocaleString('th-TH', { minimumFract
 export const mill = (n) => (n / 1e6).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 export const short = (name) => String(name || '').replace(' (สมมุติ)', '');
 export const dateTime = (iso) => new Date(iso).toLocaleString('th-TH', { day: 'numeric', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+// เวลาแบบ "เมื่อวาน" "3 วันที่ผ่านมา" ต้องมีวันที่จริงกำกับเสมอ (รายงานเทียบโปรแกรมดังข้อ A6) เกิน 6 วันแสดงแค่วันที่
+const REL = typeof Intl.RelativeTimeFormat === 'function' ? new Intl.RelativeTimeFormat('th', { numeric: 'auto' }) : null;
+export function relWhen(value) {
+  const v = String(value || '');
+  if (!v) return '';
+  // เวลาจากเว็บเก็บแบบสากล (UTC) แปลงเป็นวันที่ของเครื่องก่อน ไม่งั้นรายการก่อน 7 โมงเช้าจะขึ้นเป็นวันก่อน
+  const dt = new Date(v);
+  const day = v.length > 10 ? new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 10) : v.slice(0, 10);
+  const d = daysBetween(day, S.today);
+  const time = v.length > 10 ? new Date(v).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '';
+  const rel = REL && d >= 0 && d <= 6 ? REL.format(-d, 'day') : '';
+  return [rel, thaiDate(day), d === 0 && time ? time : ''].filter(Boolean).join(' ');
+}
+// ที่อยู่เต็มของหน้าในระบบ ใช้ในข้อความที่ส่งออกนอกระบบ (LINE) และใน QR
+export const absUrl = (hash) => `${location.origin}${location.pathname}${hash.startsWith('#') ? hash : `#/${hash}`}`;
 export const LEVEL_TEXT = { crit: 'วิกฤต', warn: 'เฝ้าระวัง', ok: 'ปกติ' };
 const TH_MONTH = new Intl.DateTimeFormat('th-TH', { month: 'short', year: '2-digit', timeZone: 'UTC' });
 export const monthLabel = (ym) => TH_MONTH.format(new Date(`${ym}-01T00:00:00Z`));
@@ -39,6 +54,17 @@ export const I = {
   edit: svg('<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/>'),
   plus: svg('<path d="M12 5v14M5 12h14"/>'),
   reply: svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v4"/>'),
+  // เพิ่มรอบเทียบโปรแกรมดัง (เวอร์ชัน 2.3): แชร์ หน้าแรก เครื่องมือ QR ลูกศรเรียงและลูกศรเทียบ
+  share: svg('<circle cx="18" cy="5.5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="18.5" r="2.5"/><path d="m8.2 10.8 7.6-4.1M8.2 13.2l7.6 4.1"/>'),
+  home: svg('<path d="M4 11l8-6 8 6v8a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1z"/>'),
+  grid: svg('<rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/>'),
+  qr: svg('<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h2v2h-2zM18 14h2M14 18h2M18 18h2v2"/>'),
+  sort: svg('<path d="m8 10 4-4 4 4M8 14l4 4 4-4"/>', 'ic ic-sort'),
+  sortUp: svg('<path d="m7 14 5-5 5 5"/>', 'ic ic-sort'),
+  sortDown: svg('<path d="m7 10 5 5 5-5"/>', 'ic ic-sort'),
+  chev: svg('<path d="m7 10 5 5 5-5"/>', 'ic ic-chev'),
+  up: svg('<path d="M12 19V5M6 11l6-6 6 6"/>', 'ic ic-delta'),
+  down: svg('<path d="M12 5v14M6 13l6 6 6-6"/>', 'ic ic-delta'),
 };
 export const chip = (text, lv) => `<span class="chip ch-${lv}">${esc(text)}</span>`;
 const LOT_LV = { 'รอปล่อยผ่าน': 'hold', 'ตรวจสอบแล้ว': 'pass', 'ไม่ผ่าน': 'fail', 'หมดอายุ': 'exp' };
@@ -193,10 +219,69 @@ export function slipBlock(room) {
   return `<section class="slip" aria-label="${esc(o.k)}" tabindex="-1">
     <div class="slip-id"><div class="slip-k">${esc(o.k)}</div><div class="slip-no">${esc(o.no)}</div>${stamp(o.stamp[0], o.stamp[1], true)}</div>
     <div class="slip-main"><div class="t">${keepCodes(esc(o.title))}</div>${(o.lines || []).map((l) => `<div class="d">${keepCodes(esc(l))}</div>`).join('')}
-      ${o.links ? `<div class="slip-links">${o.links.map(([t, href]) => `<a href="${href}">${I.doc}${esc(t)}</a>`).join('')}</div>` : ''}</div>
+      ${o.links ? `<div class="slip-links">${o.links.map(([t, href]) => `<a href="${href}">${I.doc}${esc(t)}</a>`).join('')}</div>` : ''}
+      ${o.qr ? lotQR(o.qr, 'slip-qr') : ''}</div>
     <button type="button" class="slip-x" data-act="slipClose" aria-label="ปิดสำเนา">${I.close}</button>
   </section>`;
 }
+
+// ---------- QR ประจำล็อต (รายงานเทียบโปรแกรมดังข้อ A8) ----------
+// QR เป็นลิงก์ไปหน้าล็อตในระบบ สแกนด้วยกล้องมือถือได้เลย ไม่ต้องมีตัวสแกนในเว็บ (ตัวสแกนในเว็บยังใช้ไม่ได้ทุกเบราว์เซอร์)
+// ตัวสร้าง QR เก็บในเว็บเอง (assets/vendor, MIT) โหลดเมื่อหน้านั้นมี QR เท่านั้น
+export const lotHref = (lotNo) => `#/trace?lot=${encodeURIComponent(lotNo)}`;
+export function lotQR(lotNo, cls = '') {
+  return `<div class="lot-qr${cls ? ` ${cls}` : ''}"><span class="qr" data-qr="${esc(absUrl(lotHref(lotNo)))}" role="img" aria-label="QR เปิดหน้าล็อต ${esc(lotNo)}"></span>
+    <p><strong>สแกนด้วยกล้องมือถือ</strong> เปิดหน้าล็อต <span class="mono">${esc(lotNo)}</span> ได้ทันที <a href="#/doc?type=lot-label&lot=${encodeURIComponent(lotNo)}">${I.print}พิมพ์ป้ายล็อตพร้อม QR</a></p></div>`;
+}
+let qrLib = null;
+function loadQR() {
+  if (window.qrcode) return Promise.resolve(window.qrcode);
+  if (!qrLib) {
+    qrLib = new Promise((ok, fail) => {
+      const s = document.createElement('script');
+      s.src = new URL('./vendor/qrcode-generator-1.4.4.min.js', import.meta.url).href;
+      s.onload = () => ok(window.qrcode);
+      s.onerror = () => { qrLib = null; fail(new Error('โหลดตัวสร้าง QR ไม่ได้')); };
+      document.head.appendChild(s);
+    });
+  }
+  return qrLib;
+}
+export function renderQR(root) {
+  const els = [...root.querySelectorAll('[data-qr]:empty')];
+  if (!els.length) return;
+  loadQR().then((qrcode) => {
+    for (const el of els) {
+      if (!el.isConnected) continue;
+      const q = qrcode(0, 'M');
+      q.addData(el.dataset.qr);
+      q.make();
+      el.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+      el.querySelector('svg')?.setAttribute('aria-hidden', 'true');
+    }
+  }).catch((e) => { for (const el of els) el.textContent = e.message; });
+}
+
+// ---------- ส่งสรุปเข้า LINE (รายงานเทียบโปรแกรมดังข้อ A7) ----------
+// ใช้ลิงก์ line.me/R/share?text= ของ LINE เปิดหน้าเลือกเพื่อนหรือกลุ่มพร้อมข้อความ ให้เห็นข้อความก่อนส่งทุกครั้ง
+// ข้อความมีแค่สรุปกับลิงก์ ไม่ใส่ชื่อคน คนเปิดลิงก์ต้องเข้าระบบเอง (ระบบจริง)
+export function shareLine(text) {
+  const d = openDialog({
+    title: 'ส่งข้อความนี้เข้า LINE', ok: 'เปิด LINE', cancel: 'ยกเลิก',
+    body: `<div class="share-msg">${esc(text)}</div>
+      <p class="dlg-note">กดเปิด LINE แล้วเลือกกลุ่มหรือคนที่จะส่ง ระบบส่งแค่ข้อความสรุปกับลิงก์ ไม่มีชื่อคน คนที่เปิดลิงก์ต้องเข้าระบบเอง</p>
+      <p><button type="button" class="btn btn-sm" data-share-copy>${I.doc}คัดลอกข้อความ</button></p>`,
+    onOk: () => { window.open(`https://line.me/R/share?text=${encodeURIComponent(text)}`, '_blank', 'noopener'); return true; },
+  });
+  d.querySelector('[data-share-copy]')?.addEventListener('click', (e) => {
+    const b = e.currentTarget;
+    const done = () => { b.textContent = 'คัดลอกแล้ว'; };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done, () => { b.textContent = 'คัดลอกไม่ได้ ให้กดค้างที่ข้อความแล้วคัดลอกเอง'; });
+    else b.textContent = 'คัดลอกไม่ได้ ให้กดค้างที่ข้อความแล้วคัดลอกเอง';
+  });
+  return d;
+}
+export const shareBtn = (text, label = 'ส่งเข้า LINE', cls = 'btn') => `<button type="button" class="${cls}" data-act="share" data-share="${esc(text)}">${I.share}${label ? esc(label) : '<span class="sr">ส่งเรื่องนี้เข้า LINE</span>'}</button>`;
 
 // ---------- หัวห้อง คูปองแจ้งเตือน และแท็บงาน ----------
 export function head(title, alerts = [], acts = '', sub = '') {
@@ -234,9 +319,15 @@ export function coupon(a) {
     <div class="cbody"><h3><span class="sr">${LEVEL_TEXT[a.level]} </span>${subjectHref(a) ? `<a class="c-link" href="${subjectHref(a)}">${keepCodes(esc(a.title))}</a>` : keepCodes(esc(a.title))}</h3>
       <dl class="fields">${a.fields.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${fieldVal(v)}</dd></div>`).join('')}</dl>
       ${a.timeline ? routeBar(a.timeline) : ''}
-      ${goOrInfo(a)}</div>
+      <div class="c-acts">${goOrInfo(a)}${shareBtn(alertText(a), '', 'btn-ico c-share')}</div></div>
     ${stamp(a.stamp, a.level)}
   </article>`;
+}
+// ข้อความสรุปเรื่องเตือนสำหรับส่งเข้า LINE: ระดับ หัวเรื่อง รายละเอียด และลิงก์หน้าของเรื่อง ไม่มีชื่อคน
+function alertText(a) {
+  const href = subjectHref(a) || (a.go ? `#/${a.go}` : '');
+  const fields = (a.fields || []).filter(([k]) => !/ผู้|คน/.test(k)).slice(0, 4).map(([k, v]) => `${k} ${v}`).join(' ');
+  return [`${LEVEL_TEXT[a.level]} ${a.stamp}: ${a.title}`, a.detail || fields, href ? `เปิดดูในระบบ ${absUrl(href)}` : ''].filter(Boolean).join('\n');
 }
 const compactAlert = (a, cls = '') => `<li${cls ? ` class="${cls}"` : ''}>${chip(a.stamp, a.level)}<span class="t">${subjectHref(a) ? `<a href="${subjectHref(a)}">${keepCodes(esc(a.title))}</a>` : keepCodes(esc(a.title))}<span class="d">${esc(a.detail)}</span></span>${goOrInfo(a).replace('class="go"', 'class="go-l"')}</li>`;
 export function alertsBlock(alerts, emptyText, opt = {}) {
@@ -246,7 +337,7 @@ export function alertsBlock(alerts, emptyText, opt = {}) {
   // แท็บอื่นที่ไม่ใช่แท็บแรกของห้อง: พับแจ้งเตือนเป็นแถบเดียว งานของแท็บขึ้นก่อน (QA-026 ตรวจความเรียบร้อย ข้อ 10)
   if (opt.fold && alerts.length) {
     const c = alerts.filter((a) => a.level === 'crit').length;
-    return `<details class="alerts-fold"><summary>${I.right}<span>แจ้งเตือนของฝ่าย ${alerts.length} เรื่อง${c ? ` วิกฤต ${c} เรื่อง` : ''}</span><span class="fold-hint">กดเพื่อดู</span></summary><ul class="alist">${alerts.map((a) => compactAlert(a)).join('')}</ul></details>`;
+    return `<details class="alerts-fold"><summary>${I.right}<span>แจ้งเตือนของฝ่าย ${alerts.length} เรื่อง${c ? ` <strong class="tx-crit">วิกฤต ${c} เรื่อง</strong>` : ''}</span><span class="fold-hint">กดเพื่อดู</span></summary><ul class="alist">${alerts.map((a) => compactAlert(a)).join('')}</ul></details>`;
   }
   if (!alerts.length) { const lv = opt.quietLevel || 'ok'; return `<p class="alerts-quiet">${chip(LEVEL_TEXT[lv], lv)} ${esc(emptyText || 'ไม่มีแจ้งเตือนของฝ่ายวันนี้ ระบบจะขึ้นคูปองเมื่อมีของใกล้หมด ของมาไม่ทัน ของใกล้หมดอายุ เครื่องมือใกล้ครบกำหนด หรืองานหยุด')}</p>`; }
   const top = alerts.slice(0, 3);

@@ -827,9 +827,9 @@ td.struck { text-decoration: line-through; text-decoration-color: var(--perf); c
 @media (max-width: 960px) { .map svg { display: none; } .map-list { display: block; } }
 /* ตัวเลขกับหน่วยอยู่บรรทัดเดียวกัน รหัสในต้นขั้วไม่ตัดกลางรหัส (ข้อ 17) */
 .qty, .stub-ref .nowrap { white-space: nowrap; }
-/* เครื่องมือ: ชื่อเต็มบนจอกว้างตั้งแต่ 1600 ชื่อสั้นบนจอที่แคบกว่า (ข้อ 13) */
+/* เครื่องมือ: ชื่อเต็มบนจอกว้าง ชื่อสั้นบนจอแคบ (ข้อ 13) เวอร์ชัน 2.3 แถบสั้นลงแล้ว (ข้อ A11) ชื่อเต็มกลับมาตั้งแต่ 1181 */
 .tt-short { display: none; }
-@media (max-width: 1599px) {
+@media (max-width: 1180px) {
   .tab-tool .tt-full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .tab-tool .tt-short { display: inline; }
 }
@@ -899,3 +899,145 @@ td.struck { text-decoration: line-through; text-decoration-color: var(--perf); c
 /* มือถือ: ช่องข้อมูลในคูปองเรียงช่องเดียว ชื่อยาวไม่ตัดคำละบรรทัด (ข้อ 26) */
 @media (max-width: 480px) { .coupon .fields { grid-template-columns: minmax(0, 1fr); } }
 
+
+/* ---------- เทียบโปรแกรมดัง เวอร์ชัน 2.3 (6 พ.ย. 2569 พี่สั่ง "ทำ A ทั้งหมด") ---------- */
+/* A1 ช่องค้นบนแถบหัว และกล่องค้นทุกอย่าง (Ctrl K หรือ ⌘ K) แบบ GitHub กับ Linear */
+.kbar { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px 0 10px; border: 1px solid rgba(255, 255, 255, .4); border-radius: 5px; background: rgba(255, 255, 255, .08); color: #fff; font: 500 var(--t-sm)/1 var(--font); cursor: pointer; white-space: nowrap; transition: background-color .16s ease; }
+.kbar:hover { background: rgba(255, 255, 255, .16); }
+.kbar kbd { font-family: var(--mono); font-size: 11px; line-height: 1; padding: 3px 5px; border: 1px solid rgba(255, 255, 255, .35); border-radius: 3px; color: rgba(255, 255, 255, .9); }
+@media (max-width: 1100px) { .kbar-t { display: none; } }
+@media (max-width: 760px) { .kbar { display: none; } }
+.pal { width: min(680px, calc(100vw - 32px)); max-height: min(580px, calc(100dvh - 120px)); margin: 88px auto auto; padding: 0; border: 0; border-radius: var(--r); background: var(--coupon); color: var(--ink); box-shadow: var(--shadow-lift); overflow: hidden; }
+.pal[open] { display: flex; flex-direction: column; }
+.pal::backdrop { background: rgba(19, 33, 61, .45); }
+.pal-in { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 16px; border-bottom: 1px dashed var(--perf); }
+.pal-in > .ic { width: 20px; height: 20px; color: var(--navy); }
+.pal-q { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: 600 var(--t-md)/1.4 var(--font); color: var(--ink); caret-color: var(--carbon); padding: 6px 0; }
+.pal-q::placeholder { color: var(--muted); font-weight: 400; }
+.pal-x { width: 36px; height: 36px; display: grid; place-items: center; flex: none; border: 0; border-radius: 5px; background: transparent; color: var(--ink-2); cursor: pointer; }
+.pal-x:hover { background: var(--row-hover); }
+.pal-hint { margin: 0; padding: 8px 16px; font-size: var(--t-xs); color: var(--ink-2); background: var(--row-new); border-bottom: 1px dashed var(--perf); }
+.pal-list { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0 8px; }
+.pal-g { padding: 10px 16px 4px; font-size: var(--t-xs); font-weight: 600; color: var(--muted); }
+.pal-o { display: grid; grid-template-columns: 20px auto minmax(0, 1fr) auto; align-items: center; gap: 2px 12px; min-height: 40px; padding: 6px 16px; font-size: var(--t-sm); cursor: pointer; }
+.pal-o[aria-selected="true"] { background: var(--carbon-soft); }
+.pal-ic { display: grid; place-items: center; color: var(--navy); }
+.pal-ic .ic { width: 17px; height: 17px; }
+.pal-code { font-family: var(--mono); font-size: 13px; color: var(--carbon); white-space: nowrap; }
+.pal-code.is-act { font-family: var(--font); font-weight: 700; color: var(--navy); }
+.pal-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-meta { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-xs); color: var(--muted); white-space: nowrap; }
+.pal-o mark { background: none; color: inherit; font-weight: 700; text-decoration: underline; text-decoration-color: var(--carbon); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+.pal-empty { padding: 18px 16px; color: var(--muted); font-size: var(--t-sm); line-height: 1.6; }
+.pal-foot { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0; padding: 9px 16px; border-top: 1px dashed var(--perf); font-size: var(--t-xs); color: var(--muted); }
+.pal-foot .pal-k { margin-left: auto; }
+.pal kbd { font-family: var(--mono); font-size: 11px; padding: 1px 5px; border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 3px; color: var(--ink-2); background: var(--coupon); }
+@media (max-width: 760px) {
+  .pal { width: calc(100vw - 24px); margin-top: 12px; max-height: calc(100dvh - 110px); }
+  .pal-q { font-size: 16px; }
+  .pal-foot { display: none; }
+  .pal-o { grid-template-columns: 20px auto minmax(0, 1fr); min-height: 48px; }
+  .pal-meta { grid-column: 3; }
+}
+/* A3 แถบล่าง 4 ปุ่มบนมือถือ แบบ Material และแผ่นเครื่องมือ (แถบบนเหลือเฉพาะห้องทำงาน) */
+.bnav { display: none; }
+@media (max-width: 760px) {
+  .bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 6px 8px calc(8px + env(safe-area-inset-bottom)); background: var(--navy); box-shadow: 0 -4px 14px rgba(19, 33, 61, .18); }
+  .bn { position: relative; display: grid; justify-items: center; align-content: center; gap: 2px; min-height: 52px; padding: 4px 0; border: 0; border-radius: 8px; background: transparent; color: rgba(255, 255, 255, .82); font: 500 12px/1.25 var(--font); text-decoration: none; cursor: pointer; }
+  .bn .ic { width: 22px; height: 22px; }
+  .bn[aria-current="page"] { background: rgba(255, 255, 255, .14); color: #fff; font-weight: 700; }
+  .bn:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
+  .bn-count { position: absolute; top: 4px; left: calc(50% + 6px); font-family: var(--mono); font-size: 11px; line-height: 1; padding: 3px 4px; border-radius: 3px; background: var(--carbon); color: #fff; }
+  body { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+  .tab-tool, .tab-sep { display: none; }
+}
+.sheet { position: fixed; inset: auto 0 0 0; width: 100%; max-width: none; margin: 0; padding: 0 0 calc(10px + env(safe-area-inset-bottom)); border: 0; border-radius: 8px 8px 0 0; background: var(--coupon); color: var(--ink); box-shadow: var(--shadow-lift); }
+.sheet::backdrop { background: rgba(19, 33, 61, .45); }
+.sheet-h { display: flex; align-items: center; justify-content: space-between; padding: 10px 10px 8px 18px; border-bottom: 1px dashed var(--perf); }
+.sheet-h h2 { font-size: var(--t-md); color: var(--navy); }
+.sheet-list { display: grid; padding: 6px 10px; }
+.sheet-list a { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 10px; border-radius: 6px; color: var(--ink); text-decoration: none; font-weight: 600; }
+.sheet-list a:hover { background: var(--row-hover); }
+.sheet-list .ic { width: 20px; height: 20px; color: var(--navy); }
+@media print { .bnav, .sheet, .pal, .kbar { display: none !important; } }
+/* A4 ป้ายกำหนดเสร็จบนการ์ดงาน แบบ Trello (สีสถานะเดิมของธีม ตัวหนังสือบอกเสมอ) */
+.k-due { margin-top: -2px; line-height: 1.3; }
+.k-due .chip { font-size: 11px; }
+.k-due-t { font-size: var(--t-xs); color: var(--muted); }
+/* A5 หัวตารางค้างตอนเลื่อน (เฉพาะตารางที่กว้างพอดีกล่อง) และกดหัวคอลัมน์เพื่อเรียง แบบ Google ชีต */
+.table-wrap.is-fit { overflow: visible; }
+.table-wrap.is-fit > table > thead th { position: sticky; top: var(--bar-h, 90px); z-index: 3; background: var(--coupon); border-bottom: 0; box-shadow: inset 0 -1.5px 0 var(--navy); }
+.th-sort { display: inline-flex; align-items: center; gap: 4px; min-height: 24px; padding: 2px 0; border: 0; background: none; font: inherit; color: inherit; cursor: pointer; }
+@media (pointer: coarse) { .th-sort { min-height: 44px; } }
+.th-sort:hover { color: var(--navy); }
+.th-sort .ic-sort { width: 13px; height: 13px; color: var(--perf); }
+th[aria-sort] .th-sort { color: var(--navy); }
+th[aria-sort] .th-sort .ic-sort { color: var(--carbon); }
+/* A6 ความเคลื่อนไหวของงาน รายการ ล็อต แบบ Odoo Chatter: เส้นประเดียวกับรอยปรุของธีม */
+.tl { list-style: none; margin: 0; padding: 0; display: grid; }
+.tl > li { position: relative; display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 12px; padding: 0 0 14px; }
+.tl > li::before { content: ""; position: absolute; left: 11.5px; top: 28px; bottom: 2px; border-left: 1px dashed var(--perf); }
+.tl > li:last-child::before { display: none; }
+.tl > li > .avatar, .tl-dot { grid-row: 1 / span 3; }
+.tl > li > :not(.avatar):not(.tl-dot) { grid-column: 2; }
+.tl-dot { width: 24px; height: 24px; border-radius: 50%; border: 1.5px dashed var(--perf); background: var(--ground); }
+.tl-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-size: var(--t-xs); }
+.tl-who { font-size: var(--t-sm); font-weight: 700; color: var(--ink); }
+.tl-sys { color: var(--muted); font-weight: 600; }
+.tl-when { color: var(--muted); }
+.tl-t { margin-top: 2px; font-size: var(--t-sm); color: var(--ink-2); line-height: 1.55; overflow-wrap: anywhere; }
+.tl-r { display: block; color: var(--muted); font-size: var(--t-xs); }
+.tl-note { margin-top: 6px; padding: 10px 12px; border-radius: 6px; background: var(--ground); font-size: var(--t-sm); line-height: 1.7; max-width: 70ch; overflow-wrap: anywhere; }
+.tl-note a { margin-left: 6px; font-weight: 600; }
+.tl-comp { display: grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr) auto; align-items: end; gap: 10px 12px; margin-top: 4px; padding-top: 14px; border-top: 1px dashed var(--perf); }
+.tl-comp .form-actions { grid-column: auto; }
+@media (max-width: 760px) { .tl-comp { grid-template-columns: minmax(0, 1fr); } .tl-comp .form-actions .btn { flex: 1 1 auto; } }
+/* A7 ส่งเข้า LINE: ข้อความที่จะส่งแสดงให้เห็นก่อนทุกครั้ง */
+.share-msg { white-space: pre-line; padding: 12px 14px; border: 1px dashed var(--perf); border-radius: 6px; background: var(--ground); font-size: var(--t-sm); line-height: 1.7; overflow-wrap: anywhere; }
+.c-acts { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 10px; position: relative; z-index: 1; }
+.c-acts .go { margin-top: 0; }
+.c-share { flex: none; width: 34px; height: 34px; }
+.c-share .ic { width: 16px; height: 16px; }
+@media (max-width: 760px) { .c-share { width: 44px; height: 44px; } }
+/* A8 QR ประจำล็อตบนใบสำเนา และป้ายล็อตพร้อม QR (พิมพ์ขาวดำ) */
+.lot-qr { display: grid; grid-template-columns: 96px minmax(0, 1fr); align-items: center; gap: 12px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--carbon-edge); }
+.lot-qr .qr { display: block; width: 96px; height: 96px; background: #fff; border-radius: 4px; }
+.qr svg { display: block; width: 100%; height: 100%; }
+.lot-qr p { font-size: var(--t-sm); color: var(--ink-2); line-height: 1.6; }
+.lot-qr p a { display: inline-flex; align-items: center; gap: 5px; margin-top: 4px; font-weight: 600; color: var(--carbon); }
+.label-note { font-size: 12px; margin-bottom: 12px; }
+.lot-label { display: grid; grid-template-columns: minmax(0, 1fr) 42mm; gap: 6mm; width: 124mm; max-width: 100%; padding: 6mm; border: 1.5px solid #000; border-radius: 2mm; }
+.ll-k { font-size: 12px; }
+.ll-name { font-size: 18px; font-weight: 700; line-height: 1.3; }
+.ll-no { margin: 2mm 0; font-family: var(--mono); font-size: 26px; font-weight: 700; letter-spacing: .02em; }
+.ll-f { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2mm 4mm; font-size: 12px; }
+.ll-f dt { font-weight: 600; }
+.ll-st { margin-top: 3mm; font-size: 11px; }
+.ll-qr { display: grid; justify-items: center; align-content: start; gap: 2mm; font-size: 11px; text-align: center; }
+.ll-qr .qr { display: block; width: 40mm; height: 40mm; }
+@media (max-width: 760px) { .lot-label { grid-template-columns: minmax(0, 1fr); } .ll-qr { justify-items: start; text-align: left; } }
+/* A9 ลูกศรเทียบเดือนก่อน: ขึ้นลงบอกด้วยลูกศรและคำ ไม่ใช้สีอย่างเดียว */
+.delta { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.delta-v { display: inline-flex; align-items: center; gap: 2px; padding: 0 6px; border: 1.5px solid currentColor; border-radius: 4px; font-weight: 700; font-variant-numeric: tabular-nums; background: var(--coupon); }
+.delta.is-up .delta-v { color: var(--ok); }
+.delta.is-down .delta-v { color: var(--warn); }
+.ic-delta { width: 12px; height: 12px; stroke-width: 2.4; }
+/* A10 การ์ดเลื่อนไปขั้นใหม่ (เฉพาะการ์ดที่ผู้ใช้ย้ายเอง ไม่เกินครึ่งวินาที หน้าอื่นไม่ขยับ) */
+::view-transition-group(kcard-move) { animation-duration: .45s; animation-timing-function: cubic-bezier(.22, 1, .36, 1); }
+::view-transition-old(kcard-move), ::view-transition-new(kcard-move) { animation-duration: .45s; }
+::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+@media (prefers-reduced-motion: reduce) { ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; } }
+/* A11 แถบห้องสั้นลง (พี่ขอเพิ่ม): ห้องที่ไม่มีสิทธิ์ไม่แสดง เครื่องมือ 4 อย่างรวมเป็นปุ่มเดียวมีรายการลงมา */
+.tab-more { border: 0; background: transparent; font: inherit; font-size: var(--t-sm); cursor: pointer; }
+.tab-more .ic-chev { width: 14px; height: 14px; transition: transform .16s ease; }
+.tab-more[aria-expanded="true"] { color: #fff; background: var(--navy-2); }
+.tab-more[aria-expanded="true"] .ic-chev { transform: rotate(180deg); }
+.tab-more.is-current { background: var(--ground); color: var(--navy); font-weight: 700; }
+.toolmenu { position: fixed; z-index: 25; min-width: 230px; padding: 6px; background: var(--coupon); border-radius: var(--r); box-shadow: var(--shadow-lift); }
+.toolmenu[hidden] { display: none; }
+.toolmenu ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.toolmenu a { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 5px; color: var(--ink); text-decoration: none; font-size: var(--t-sm); font-weight: 600; }
+.toolmenu a:hover { background: var(--row-hover); }
+.toolmenu a[aria-current="page"] { background: var(--carbon-soft); color: var(--navy); }
+.toolmenu .ic { width: 18px; height: 18px; color: var(--navy); }
+@media print { .toolmenu { display: none !important; } }

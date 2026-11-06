@@ -1,8 +1,9 @@
 // หน้ารายละเอียด: รายการ (สมุนไพร วัตถุดิบ บรรจุภัณฑ์ ฉลาก) และงานบนบอร์ด
 // กดเข้ามาได้จากการ์ดงาน คูปองแจ้งเตือน และชื่อรายการในตารางทุกห้อง ยาสำเร็จรูปใช้หน้าผลิตภัณฑ์ (registers.js) ที่ดึงส่วนคลังจากไฟล์นี้
 import { CONFIG, LANES, STAGE_OWNER, CAN } from './config.js';
-import { S, D, staff, isFG, active, usable, bomOf, bomNeeds, stageOf, supplierLead, prStage, thaiDate, daysBetween } from './data.js';
-import { esc, num, num2, qn, qty, qh, I, chip, lotChip, tableWrap, supName, short, who, can, head, alertsBlock, slipBlock, itemLink, jobLink, LEVEL_TEXT, roleAbbr, dateTime } from './ui.js';
+import { ROOMS } from './config.js';
+import { S, D, staff, isFG, active, usable, bomOf, bomNeeds, stageOf, supplierLead, prStage, thaiDate, daysBetween, currentUser } from './data.js';
+import { esc, num, num2, qn, qty, qh, I, chip, lotChip, tableWrap, supName, short, who, avatar, can, head, alertsBlock, slipBlock, itemLink, jobLink, LEVEL_TEXT, roleAbbr, dateTime, relWhen, shareBtn, absUrl, jobHref } from './ui.js';
 import { chart } from './plan.js';
 
 const IN_TYPES = new Set(['รับ', 'ยกมา']);
@@ -13,6 +14,33 @@ const when = (iso) => dateTime(iso);
 const sumLots = (code, f) => (S.lotsByItem.get(code) || []).filter(f).reduce((t, l) => t + l.qty_left, 0);
 const field = (k, v, cls = '') => `<div${cls ? ` class="${cls}"` : ''}><dt>${esc(k)}</dt><dd>${v}</dd></div>`;
 
+// ---------- ความเคลื่อนไหวของเรื่องเดียวในหน้าเดียว แบบ Odoo Chatter (รายงานเทียบโปรแกรมดังข้อ A6) ----------
+// รวมสิ่งที่เกิดกับงาน ล็อต หรือรายการนั้น: ข้อมูลตั้งต้น ประวัติการแก้ไขจากเว็บ (ใคร เมื่อไร เหตุผล) และบันทึกถึงฝ่ายที่อ้างเลขนี้
+// ระบุตัวคนเฉพาะที่ข้อมูลมีจริง ข้อมูลตั้งต้นที่ไม่มีชื่อคนไม่เดาชื่อให้ (หลัก ALCOA+ ระบุผู้ทำได้)
+// items: [{ at: วันที่หรือวันเวลา, user: รหัสพนักงานหรือว่าง, text, reason? }]
+export function activityPanel({ ref, label, items = [], toRoom = '', match }) {
+  // บันทึกถึงฝ่ายแสดงจากรายการบันทึกด้านล่าง (มีข้อความเต็ม) จึงไม่ดึงซ้ำจากประวัติ
+  const evs = S.events.filter((e) => e.type !== 'note' && e.type !== 'noteRead').filter(match || ((e) => (e.summary || '').includes(ref) || JSON.stringify(e.effects || {}).includes(`"${ref}"`)))
+    .map((e) => ({ at: e.at, user: e.user, text: e.summary, reason: e.reason || '' }));
+  const notes = S.notes.filter((n) => n.ref === ref).map((n) => ({ at: n.at, user: n.from, text: `บันทึกถึง${n.to_user ? ` ${short(staff(n.to_user).name)}` : ROOMS.find((r) => r.id === n.to_room)?.title || n.to_room}: ${n.subject}`, body: n.body, note: n.id }));
+  // ใหม่สุดอยู่บน เรื่องวันเดียวกันเรียงตามลำดับที่เกิด (เกิดทีหลังอยู่บน)
+  const all = [...items, ...evs, ...notes].map((x, i) => ({ ...x, i })).filter((x) => x.at).sort((a, b) => String(b.at).localeCompare(String(a.at)) || b.i - a.i).slice(0, 30);
+  const row = (x) => {
+    const u = x.user ? staff(x.user) : null;
+    return `<li class="${u ? '' : 'is-sys'}">${u ? avatar(u) : '<span class="tl-dot" aria-hidden="true"></span>'}
+      <div class="tl-h">${u ? `<span class="tl-who">${esc(short(u.name))} <span class="who-r">${esc(roleAbbr(u.role))}</span></span>` : '<span class="tl-who tl-sys">ข้อมูลตั้งต้น</span>'}<span class="tl-when">${esc(relWhen(x.at))}</span></div>
+      <p class="tl-t">${esc(x.text)}${x.reason ? `<span class="tl-r">เหตุผล ${esc(x.reason)}</span>` : ''}</p>
+      ${x.body ? `<div class="tl-note">${esc(x.body.length > 280 ? `${x.body.slice(0, 280)}…` : x.body)} <a href="#/notes?id=${encodeURIComponent(x.note)}">เปิดบันทึก</a></div>` : ''}</li>`;
+  };
+  const rooms = ROOMS.filter((r) => r.id !== 'overview');
+  return `<section class="panel" aria-labelledby="tl-h-${esc(ref)}"><div class="panel-h"><h2 id="tl-h-${esc(ref)}">ความเคลื่อนไหวของ${esc(label)}นี้</h2><span class="meta">ประวัติและบันทึกถึงฝ่ายที่อ้างเลข <span class="mono">${esc(ref)}</span> ใหม่สุดอยู่บน <a href="#/log?q=${encodeURIComponent(ref)}">ดูในประวัติการแก้ไข</a></span></div>
+    ${all.length ? `<ol class="tl">${all.map(row).join('')}</ol>` : '<p class="empty">ยังไม่มีความเคลื่อนไหว</p>'}
+    <form data-form="noteQuick" class="tl-comp" data-ref="${esc(ref)}" data-label="${esc(label)}">
+      <label class="f">ถึงฝ่าย<select class="in" name="to_room">${rooms.map((r) => `<option value="${r.id}" ${r.id === toRoom ? 'selected' : ''}>${esc(r.title)}</option>`).join('')}</select></label>
+      <label class="f tl-body">บันทึกเรื่อง ${esc(ref)} ถึงฝ่าย (เก็บเป็นหลักฐาน แก้หรือลบไม่ได้)<input class="in" name="body" required maxlength="1000" placeholder="เช่น ขอให้เบิกเพิ่ม หรือแจ้งผลที่ต้องรู้"></label>
+      <div class="form-actions"><button type="submit" class="btn">ส่งบันทึก</button></div>
+    </form></section>`;
+}
 function expCell(l) {
   if (!l.exp_date) return '<span class="muted">ไม่กำหนด</span>';
   const d = daysBetween(S.today, l.exp_date);
@@ -145,7 +173,8 @@ export function viewItem(p) {
     <div class="stack">${herbRoute(it)}${supplyPanel(it, st)}${usedInPanel(it)}</div>
   </div>
   ${lotsPanel(code, p.get('lots') === 'all', `#/item?code=${encodeURIComponent(code)}&lots=all`)}
-  ${movesPanel(code)}`;
+  ${movesPanel(code)}
+  ${activityPanel({ ref: code, label: 'รายการ', toRoom: 'store', match: (e) => { const fx = JSON.stringify(e.effects || {}); return fx.includes(`"item_code":"${code}"`) || fx.includes(`"item":"${code}"`) || fx.includes(`"code":"${code}"`); } })}`;
 }
 
 // ================= หน้ารายละเอียดงาน =================
@@ -167,6 +196,7 @@ export function viewJob(p) {
   const acts = [
     canMove ? `<button type="button" class="btn" data-act="move" data-job="${esc(id)}" data-dir="-1" ${idx <= 0 || qcStage ? 'disabled' : ''}>${I.left}ย้อนขั้น</button><button type="button" class="btn btn-solid" data-act="move" data-job="${esc(id)}" data-dir="1" ${qcStage || blocked ? 'disabled' : ''}${blocked ? ` title="หยุด รอ${esc(blocked)} ส่งต่อได้เมื่อของมาถึงและปล่อยผ่านแล้ว"` : ''}>เลื่อนไปขั้นถัดไป${I.right}</button>` : '',
     `<a class="btn" href="#/${roomId}?tab=board&job=${encodeURIComponent(id)}">ดูบนบอร์ด</a>`,
+    shareBtn(jobShareText(job, it, stage, blocked)),
     !canMove && card && !qcStage ? S.base.staff.filter((s) => CAN[`move${job.lane}`].includes(s.role)).slice(0, 1).map((s) => `<button type="button" class="btn" data-act="become" data-user="${s.user_id}" title="ย้ายงานได้เฉพาะ${esc(CAN[`move${job.lane}`].join(' หรือ '))}">ลองเป็น ${esc(short(s.name))} ${esc(roleAbbr(s.role))} เพื่อย้ายงาน</button>`).join('') : '',
   ].join('');
   const sub = `${esc(L.title)} ${chip(stage, stage === 'ตรวจสอบแล้ว' ? 'ok' : stage === 'รอปล่อยผ่าน' ? 'crit' : 'ink')}${blocked ? ` ${chip(`หยุด รอ${blocked}`, 'crit')}` : ''}`;
@@ -199,7 +229,22 @@ export function viewJob(p) {
       ? tableWrap(`<table class="stack-t"><thead><tr><th>วัตถุดิบตามสูตร</th><th class="r">ต้องใช้</th><th class="r">ตรวจสอบแล้วในคลัง</th><th>พอไหม</th></tr></thead><tbody>${bomNeeds(job.item_code, job.qty).map((n) => `<tr><td class="t-name">${itemLink(n.code)}</td><td class="r" data-l="ต้องใช้">${qh(n.code, n.need)}</td><td class="r" data-l="มีในคลัง">${qh(n.code, n.have)}</td><td data-l="พอไหม">${n.ok ? chip('พอ', 'ok') : chip('ไม่พอ', 'crit')}</td></tr>`).join('')}</tbody></table>`, 'วัตถุดิบตามสูตร')
         + '<p class="panel-foot">ยังไม่เบิก ระบบเบิกให้ตามสูตรเมื่อเลื่อนงานจากขั้นเบิกวัตถุดิบ</p>'
       : '<p class="empty">ไม่มีสูตรในระบบ</p>';
-  const evs = S.events.filter((e) => (e.summary || '').includes(id) || JSON.stringify(e.effects || {}).includes(`"${id}"`)).slice(-12).reverse();
+  // ความเคลื่อนไหว: ข้อมูลตั้งต้นของงานนี้ (ไม่รวมสิ่งที่ทำผ่านเว็บ ซึ่งมาจากประวัติการแก้ไขอยู่แล้ว จึงไม่ซ้ำกัน)
+  const seed = S.base.jobs.find((j) => j.job_id === id);
+  const base = [];
+  if (seed) {
+    const word = job.lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป';
+    const iss = S.base.moves.filter((m) => m.type === 'จ่าย' && String(m.party).endsWith(id));
+    base.push({ at: seed.created_date, text: `เปิดงาน${word} ${it.name} ${qty(it.code, seed.qty)}` });
+    if (seed.start_date) base.push({ at: seed.start_date, user: iss[0]?.user_id || '', text: `เริ่มงาน เบิกวัตถุดิบตามสูตร${iss.length ? ` ${iss.length} ล็อต` : ''} แบบหมดอายุก่อนจ่ายก่อน` });
+    if (seed.out_lot) {
+      base.push({ at: seed.end_date || seed.start_date, text: `${word}เสร็จ ออกเลขที่ผลิต ${seed.out_lot} ติดป้ายรอปล่อยผ่าน` });
+      const r0 = S.base.qc_results.find((r) => r.lot_no === seed.out_lot);
+      if (r0) base.push({ at: r0.date, user: r0.checker_id, text: `บันทึกผลตรวจ ${r0.result}${r0.note ? ` ${r0.note}` : ''}` });
+      const rel0 = S.base.releases.find((r) => r.lot_no === seed.out_lot);
+      if (rel0) base.push({ at: rel0.date, user: rel0.approver_id, text: rel0.result === 'ผ่าน' ? `อนุมัติปล่อยผ่าน ${seed.out_lot} ป้ายเปลี่ยนเป็นตรวจสอบแล้ว` : `ไม่ผ่าน ${seed.out_lot}` });
+    }
+  }
   return head(`${id} ${it.name}`, alerts, acts, sub) + slipBlock(roomId) + (alerts.length ? alertsBlock(alerts) : '') + `
   <section class="panel" aria-labelledby="jr-h"><div class="panel-h"><h2 id="jr-h">งานอยู่ขั้นไหน ในมือใคร</h2><span class="meta">ขั้นงานตาม SOP ของ${esc(L.title)}</span></div>${steps}</section>
   <div class="work">
@@ -207,6 +252,10 @@ export function viewJob(p) {
     <section class="panel" aria-labelledby="jo-h"><div class="panel-h"><h2 id="jo-h">ผลผลิตและการปล่อยผ่าน</h2></div>${out}</section>
   </div>
   <section class="panel" aria-labelledby="jm-h"><div class="panel-h"><h2 id="jm-h">${issued.length ? 'วัตถุดิบที่เบิก' : 'วัตถุดิบตามสูตร'}</h2></div>${inputs}</section>
-  <section class="panel" aria-labelledby="jh-h"><div class="panel-h"><h2 id="jh-h">บันทึกในเว็บของงานนี้</h2><a href="#/log">ดูประวัติทั้งหมด</a></div>
-    <ul class="mini">${evs.map((e) => `<li><span class="t">${esc(e.summary)}<span class="d">${esc(short(staff(e.user).name))} ${esc(when(e.at))}${e.reason ? ` เหตุผล ${esc(e.reason)}` : ''}</span></span></li>`).join('') || '<li class="empty">ยังไม่มีการบันทึกจากเว็บ งานนี้มาจากข้อมูลตั้งต้น</li>'}</ul></section>`;
+  ${activityPanel({ ref: id, label: 'งาน', items: base, toRoom: roomId })}`;
+}
+// ข้อความสรุปงานสำหรับส่งเข้า LINE: ไม่มีชื่อคน มีลิงก์กลับมาที่หน้างาน
+function jobShareText(job, it, stage, blocked) {
+  return [`งาน${job.lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป'} ${job.job_id} ${it.name}`, `จำนวน ${qty(it.code, job.qty)} ตอนนี้อยู่ขั้น ${stage}${blocked ? ` หยุดรอ${blocked}` : ''}`,
+    job.status === 'running' && job.end_date ? `คาดว่าเสร็จ ${thaiDate(job.end_date)}` : job.out_lot ? `เลขที่ผลิต ${job.out_lot}` : '', `เปิดดูในระบบ ${absUrl(jobHref(job.job_id))}`].filter(Boolean).join('\n');
 }

@@ -10,13 +10,15 @@ import {
   $, esc, num, qn, qty, qh, money, baht, mill, short, I, svg, chip, lotChip, stamp, tableWrap, supName, custName, who, deptLegend,
   toast, download, can, deny, roleNote, nav, setHash, slipState, showSlip, slipBlock, head, alertsBlock, seg, itemPicker, codeOf, monthLabel, actions, itemLink, jobLink, jobHref,
   openDialog, closeDialog, storeBanner, backBar, roleAbbr, formCtx, dateTime,
+  shareLine, shareBtn, renderQR, absUrl, lotHref,
 } from './ui.js';
 import { viewBuy, buyHandlers, buildPR, viewInspect, inspectQueue } from './buy.js';
 import { viewPlan } from './plan.js';
 import { viewRegisters, viewProduct, registerHandlers, onSimInput } from './registers.js';
 import { viewDocs } from './docs.js';
 import { viewNotes, notesHandlers, afterNotes } from './notes.js';
-import { viewItem, viewJob } from './detail.js';
+import { viewItem, viewJob, activityPanel } from './detail.js';
+import { initPalette, syncBottomNav, palette } from './palette.js';
 
 // ================= ภาพรวมโรงงาน =================
 export function monthSales() {
@@ -54,6 +56,15 @@ function salesBars(ms) {
     <line class="base" x1="0" x2="${W}" y1="${base}" y2="${base}"/>
     ${ms.map((x, i) => { const h = Math.max(2, Math.round(((base - top) * x.total) / max)); const cx = i * step + step / 2; const now = i === ms.length - 1; return `<rect class="${now ? 'bar-now' : 'bar-b'}" x="${cx - bw / 2}" y="${base - h}" width="${bw}" height="${h}" rx="3"><title>${esc(monthLabel(x.month))} ${mill(x.total)} ล้านบาท</title></rect>${i % 2 === ms.length % 2 || now ? `<text class="ax" x="${cx}" y="${base + 18}" text-anchor="middle">${esc(monthLabel(x.month))}</text>` : ''}${now ? `<text class="val" x="${cx}" y="${base - h - 8}" text-anchor="middle">${mill(x.total)}</text>` : ''}`; }).join('')}
   </svg><figcaption class="note">ล้านบาท แท่งสีม่วงคือเดือนนี้ (ถึงวันนี้) ชี้ที่แท่งเพื่อดูยอด</figcaption></figure>`;
+}
+// ลูกศรเทียบเดือนที่จบแล้วกับเดือนก่อนหน้า แบบ Stripe (รายงานเทียบโปรแกรมดังข้อ A9)
+// ไม่เทียบเดือนนี้ที่ยังไม่จบ ช่วงต้นเดือนบิลน้อย ตัวเลขจะเพี้ยน ขึ้นลงบอกด้วยลูกศรและคำ ไม่ใช้สีอย่างเดียว
+function salesDelta(ms) {
+  const a = ms[ms.length - 2], b = ms[ms.length - 3];
+  if (!a || !b || !b.total) return '';
+  const p = ((a.total - b.total) / b.total) * 100;
+  const up = p >= 0;
+  return `<span class="delta ${up ? 'is-up' : 'is-down'}" title="ยอดขาย ${esc(monthLabel(a.month))} ${mill(a.total)} ล้านบาท เทียบ ${esc(monthLabel(b.month))} ${mill(b.total)} ล้านบาท">ยอดขาย ${esc(monthLabel(a.month))} <span class="delta-v">${up ? I.up : I.down}<span class="sr">${up ? 'เพิ่มขึ้น' : 'ลดลง'} </span>${num(Math.abs(p))}%</span> จาก ${esc(monthLabel(b.month))}</span>`;
 }
 function agingBar(ar) {
   const labels = ['0 ถึง 30 วัน', '31 ถึง 60 วัน', '61 ถึง 90 วัน', 'เกิน 90 วัน'];
@@ -148,12 +159,34 @@ function viewOverview(p) {
   </div>
   ${laneBoard('แปรรูป', p, false)}${laneBoard('ผลิต', p, false)}
   <div class="work" style="margin-top:16px">
-    <section class="panel" aria-labelledby="sl-h"><div class="panel-h"><h2 id="sl-h">ยอดขายรายเดือน</h2><span class="meta">${esc(monthLabel(last.month))} ถึงวันนี้ ${mill(last.total)} ล้านบาท${prev.total ? ` เดือนก่อน ${mill(prev.total)} ล้าน` : ''}</span></div>${salesBars(ms)}<p class="panel-foot">สินค้าหลักขาด ${ksd} วันในปีงบนี้ <a href="#/sales?tab=sales">ดูรายผลิตภัณฑ์</a></p></section>
+    <section class="panel" aria-labelledby="sl-h"><div class="panel-h"><h2 id="sl-h">ยอดขายรายเดือน</h2><span class="meta">${esc(monthLabel(last.month))} ถึงวันนี้ ${mill(last.total)} ล้านบาท${prev.total ? ` เดือนก่อน ${mill(prev.total)} ล้าน` : ''} ${salesDelta(ms)}</span></div>${salesBars(ms)}<p class="panel-foot">สินค้าหลักขาด ${ksd} วันในปีงบนี้ <a href="#/sales?tab=sales">ดูรายผลิตภัณฑ์</a></p></section>
     <section class="panel" aria-labelledby="ar-h"><div class="panel-h"><h2 id="ar-h">ลูกหนี้ตามอายุหนี้</h2><span class="meta">รวม ${mill(ar.total)} ล้านบาท เกินกำหนด ${mill(ar.overdue)} ล้าน</span></div>${agingBar(ar)}<a class="more-link" href="#/sales?tab=ar">ดูรายลูกค้า</a></section>
   </div>`;
 }
 
 // ================= บอร์ดงาน =================
+// ป้ายกำหนดเสร็จบนการ์ด แบบ Trello (รายงานเทียบโปรแกรมดังข้อ A4): ขึ้นเฉพาะงานที่กำลังทำ
+// งานที่ผลิตเสร็จแล้ว (รอปล่อยผ่าน ตรวจสอบแล้ว) ไม่ขึ้นว่าเลยกำหนด เพราะกำหนดเสร็จเป็นของขั้นผลิต การรอปล่อยผ่านมีตัวเลขวันรออยู่แล้ว
+export function dueBadge(job) {
+  if (job.status !== 'running' || !job.end_date || job.out_lot) return '';
+  const d = daysBetween(S.today, job.end_date);
+  if (d < 0) return `<div class="k-due">${chip(`เลยกำหนด ${-d} วัน`, 'crit')}</div>`;
+  if (d <= 1) return `<div class="k-due">${chip(d === 0 ? 'ครบกำหนดวันนี้' : 'ครบกำหนดพรุ่งนี้', 'warn')}</div>`;
+  return `<div class="k-due"><span class="k-due-t">กำหนดเสร็จ ${esc(thaiDate(job.end_date))}</span></div>`;
+}
+// การ์ดเลื่อนไปขั้นใหม่ให้เห็น (ข้อ A10): ใช้ View Transitions ของเบราว์เซอร์ เฉพาะการ์ดที่ผู้ใช้ย้ายเอง
+// เบราว์เซอร์ที่ไม่มี หรือเครื่องที่ตั้งขอลดการเคลื่อนไหว วาดหน้าใหม่ทันทีเหมือนเดิม
+function cardMotion(jobId, update) {
+  const sel = `.kcard[data-job="${CSS.escape(jobId)}"]`;
+  const old = document.querySelector(sel);
+  if (!old || typeof document.startViewTransition !== 'function' || matchMedia('(prefers-reduced-motion: reduce)').matches) return update();
+  old.style.viewTransitionName = 'kcard-move';
+  document.startViewTransition(() => {
+    update();
+    const n = document.querySelector(sel);
+    if (n) n.style.viewTransitionName = 'kcard-move';
+  }).finished.finally(() => { const n = document.querySelector(sel); if (n) n.style.viewTransitionName = ''; });
+}
 function kcard(c, canMove, target) {
   const L = LANES[c.job.lane];
   const idx = L.stages.indexOf(c.stage);
@@ -161,6 +194,7 @@ function kcard(c, canMove, target) {
   return `<article class="kcard${c.blocked ? ' is-blocked' : ''}${target === c.job.job_id ? ' is-target' : ''}" data-job="${esc(c.job.job_id)}" ${canMove ? 'draggable="true"' : ''}>
     <div class="k-top"><span class="mono">${esc(c.job.job_id)}</span>${c.job.out_lot ? `<span class="mono">${esc(c.job.out_lot)}</span>` : ''}</div>
     <h3 class="k-t"><a class="k-link" href="${jobHref(c.job.job_id)}" draggable="false">${esc(c.it.name)}</a></h3>
+    ${dueBadge(c.job)}
     <div class="k-q"><span>จำนวน</span><span>${qh(c.it.code, c.job.qty)}</span></div>
     ${c.blocked ? `<div class="k-block">หยุด รอ${esc(c.blocked)}</div>` : ''}
     <div class="k-act">${who(c.owner)}<span class="days${late ? ' warn' : ''}">${c.days} วัน</span></div>
@@ -312,10 +346,10 @@ function doMove(jobId, dir, out) {
   }
   commit({ type: 'stage', summary, effects: fx });
   const room = card.job.lane === 'ผลิต' ? 'prod' : 'process';
-  if (lotNo) showSlip(room, { k: 'สำเนาเลขที่ผลิต SOP-PD-07', no: lotNo, title: `${card.it.name} ${qty(card.it.code, out.actual)}`, lines: [`ได้จริง ${qty(card.it.code, out.actual)} จากที่สั่ง ${qty(card.it.code, job.qty)} ผลผลิต ${num(out.yieldPct, 1)}%${out.note ? ` เหตุผล ${out.note}` : ''}`, `งาน ${jobId} ส่งเข้าคิวฝ่ายควบคุมคุณภาพแล้ว ของยังเบิกไม่ได้จนกว่าจะปล่อยผ่าน`], stamp: ['รอปล่อยผ่าน', 'crit'] });
+  if (lotNo) showSlip(room, { k: 'สำเนาเลขที่ผลิต SOP-PD-07', no: lotNo, title: `${card.it.name} ${qty(card.it.code, out.actual)}`, lines: [`ได้จริง ${qty(card.it.code, out.actual)} จากที่สั่ง ${qty(card.it.code, job.qty)} ผลผลิต ${num(out.yieldPct, 1)}%${out.note ? ` เหตุผล ${out.note}` : ''}`, `งาน ${jobId} ส่งเข้าคิวฝ่ายควบคุมคุณภาพแล้ว ของยังเบิกไม่ได้จนกว่าจะปล่อยผ่าน`], stamp: ['รอปล่อยผ่าน', 'crit'], qr: lotNo });
   else if (fx.inputs) showSlip(room, { k: 'สำเนาใบเบิกวัตถุดิบ', no: jobId, title: `เบิกวัตถุดิบตามสูตร ${card.it.name}`, lines: [`${fx.inputs.length} ล็อต เรียงหมดอายุก่อนจ่ายก่อน`], stamp: ['จ่ายแล้ว', 'ink'], links: [['พิมพ์ใบเบิก FM-28 ถึง FM-33', `#/doc?type=req&job=${encodeURIComponent(jobId)}`]] });
   else toast(summary);
-  nav.route();
+  cardMotion(jobId, () => nav.route());
   return true;
 }
 
@@ -336,7 +370,8 @@ function viewLaneRoom(p, room) {
   else if (tab === 'inspect' && lane === 'ผลิต') body = viewInspect();
   else if (tab === 'plan') body = viewPlan(p, lane, room.id);
   else body = laneBoard(lane, p);
-  return head(`ห้องทำงาน${L.title}`, alerts, acts) + slipBlock(room.id) + alertsBlock(alerts, '', { fold: tab !== 'board' }) + seg(room.id, tabs, tab) + body;
+  // ห้องที่ทำงานบนบอร์ด พับเรื่องเตือนเป็นแถบเดียวทุกแท็บ บอร์ดขึ้นในจอแรก (รายงานเทียบโปรแกรมดังข้อ A2 พี่สั่ง 6 พ.ย. 2569)
+  return head(`ห้องทำงาน${L.title}`, alerts, acts) + slipBlock(room.id) + alertsBlock(alerts, '', { fold: true }) + seg(room.id, tabs, tab) + body;
 }
 
 function jobForm(room, p) {
@@ -551,7 +586,8 @@ function viewQC(p) {
   if (tab === 'released') body = qcReleased(p);
   else if (tab === 'rejected') body = qcRejected();
   else body = qcQueue(p);
-  return head('ห้องทำงานฝ่ายควบคุมคุณภาพ', alerts) + slipBlock('qc') + alertsBlock(alerts, '', { fold: tab !== 'queue' }) + seg('qc', tabs, tab) + body;
+  // คิวปล่อยผ่านคืองานหลักของห้องนี้ พับเรื่องเตือนเป็นแถบเดียวทุกแท็บ (ข้อ A2)
+  return head('ห้องทำงานฝ่ายควบคุมคุณภาพ', alerts) + slipBlock('qc') + alertsBlock(alerts, '', { fold: true }) + seg('qc', tabs, tab) + body;
 }
 function qcQueue(p) {
   const target = p.get('lot');
@@ -689,7 +725,7 @@ function salesTab(ms, p) {
   for (const l of S.invoiceLines) { if (!inv.has(l.inv_no)) continue; const x = by.get(l.item_code) || { q: 0, amt: 0 }; x.q += l.qty; x.amt += l.amount; by.set(l.item_code, x); }
   const rows = [...by].filter(([code]) => !q || S.items.get(code).name.toLowerCase().includes(q) || code.includes(q)).sort((a, b) => b[1].amt - a[1].amt);
   const total = [...by.values()].reduce((t, x) => t + x.amt, 0);
-  const chartPanel = `<section class="panel" aria-labelledby="ms-h"><div class="panel-h"><h2 id="ms-h">ยอดขายรายเดือน</h2><span class="meta">12 เดือนล่าสุด</span></div>${salesBars(ms)}</section>`;
+  const chartPanel = `<section class="panel" aria-labelledby="ms-h"><div class="panel-h"><h2 id="ms-h">ยอดขายรายเดือน</h2><span class="meta">12 เดือนล่าสุด ${salesDelta(ms)}</span></div>${salesBars(ms)}</section>`;
   return `<div class="work"><section class="panel" aria-labelledby="bp-h"><div class="panel-h"><h2 id="bp-h">ขายอะไร 12 เดือน</h2><span class="meta">${by.size} ผลิตภัณฑ์ รวม ${mill(total)} ล้านบาท</span></div>
   <form class="search" data-form="salesSearch" role="search" style="margin:0 0 10px"><label class="sr" for="sq">ค้นผลิตภัณฑ์</label><input class="in" id="sq" name="q" value="${esc(p.get('q') || '')}" placeholder="ค้นชื่อหรือรหัส"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form>
   ${tableWrap(`<table><thead><tr><th>ผลิตภัณฑ์</th><th class="r">จำนวน</th><th class="r">ยอดขาย (บาท)</th><th class="r">สัดส่วน</th></tr></thead><tbody>${rows.slice(0, 40).map(([code, x]) => `<tr><td>${itemLink(code)}</td><td class="r">${qh(code, x.q)}</td><td class="r"><span class="num">${num(x.amt)}</span></td><td class="r"><span class="num">${num((x.amt / Math.max(1, total)) * 100, 1)}%</span></td></tr>`).join('')}</tbody></table>`, 'ยอดขายรายผลิตภัณฑ์')}
@@ -728,6 +764,22 @@ function usedIn(lotNo, depth = 0) {
   for (const x of S.jobInputs.filter((y) => y.lot_no === lotNo)) { const j = S.jobs.find((jj) => jj.job_id === x.job_id); if (j && j.out_lot) { out.push(j.out_lot); out.push(...usedIn(j.out_lot, depth + 1)); } }
   return out;
 }
+// ความเคลื่อนไหวของล็อตจากข้อมูลตั้งต้น (สิ่งที่ทำผ่านเว็บมาจากประวัติการแก้ไขในแผงเดียวกัน) ระบุคนเฉพาะที่ข้อมูลมี
+function lotBaseItems(lot) {
+  const seed = S.base.lots.find((l) => l.lot_no === lot.lot_no);
+  if (!seed) return [];
+  const it = S.items.get(seed.item_code);
+  const ms = S.base.moves.filter((m) => m.lot_no === seed.lot_no);
+  const rcv = ms.find((m) => m.type === 'รับ' || m.type === 'ยกมา');
+  const src = seed.source === 'ผลิต' ? `ผลิตเสร็จตามงาน ${seed.source_ref}` : seed.source === 'รับซื้อ' ? `รับซื้อจาก ${supName(seed.source_ref)}` : seed.source === 'ใบสั่งซื้อ' ? `รับเข้าตาม ${seed.source_ref}` : seed.source;
+  const out = [{ at: seed.date_in, user: rcv?.user_id || '', text: `${src} ${qty(it.code, seed.qty_in)} ออกเลข ${seed.lot_no} ติดป้ายรอปล่อยผ่าน` }];
+  const r0 = S.base.qc_results.find((r) => r.lot_no === seed.lot_no);
+  if (r0) out.push({ at: r0.date, user: r0.checker_id, text: `บันทึกผลตรวจ ${r0.result}${r0.note ? ` ${r0.note}` : ''}` });
+  const rel0 = S.base.releases.find((r) => r.lot_no === seed.lot_no);
+  if (rel0) out.push({ at: rel0.date, user: rel0.approver_id, text: rel0.result === 'ผ่าน' ? 'อนุมัติปล่อยผ่าน ป้ายเปลี่ยนเป็นตรวจสอบแล้ว' : 'ไม่ผ่าน' });
+  for (const m of ms.filter((x) => x.type === 'จ่าย').slice(-10)) out.push({ at: m.date, user: m.user_id, text: `จ่าย ${qty(m.item_code, m.qty)} ให้ ${m.party}` });
+  return out;
+}
 function viewTrace(params) {
   const lotNo = (params.get('lot') || '').trim();
   const lot = S.lotMap.get(lotNo);
@@ -740,9 +792,12 @@ function viewTrace(params) {
     body = `<div class="work"><section class="panel" aria-labelledby="tb-h"><div class="panel-h"><h2 id="tb-h">ไล่ย้อนต้นทาง</h2></div><ul class="tree">${traceTree(lotNo)}</ul></section>
     <section class="panel" aria-labelledby="tf-h"><div class="panel-h"><h2 id="tf-h">ไล่ไปปลายทาง จำลองเรียกคืน</h2></div>
     ${down.length ? `<p>ล็อตนี้ถูกใช้ผลิตต่อเป็น ${down.map((x) => `<a class="mono" href="#/trace?lot=${x}">${x}</a>`).join(', ')}</p>` : ''}
-    ${fw.size ? `<p style="margin:6px 0 10px"><strong>ถ้าต้องเรียกคืน ต้องแจ้ง ${fw.size} ราย</strong> (FM-07 บันทึกการเรียกคืน และ FM-10 ใบเรียกคืนผลิตภัณฑ์สำเร็จรูป)</p>${tableWrap(`<table><thead><tr><th>ลูกค้า</th><th class="r">จำนวนที่ได้รับ</th></tr></thead><tbody>${[...fw].map(([k, v]) => `<tr><td>${esc(custName(k))}</td><td class="r"><span class="num">${num(v)}</span></td></tr>`).join('')}</tbody></table>`, 'ลูกค้าที่ต้องแจ้งเรียกคืน')}` : '<p class="empty">ยังไม่มีการจ่ายออกให้ลูกค้า</p>'}</section></div>`;
+    ${fw.size ? `<p style="margin:6px 0 10px"><strong>ถ้าต้องเรียกคืน ต้องแจ้ง ${fw.size} ราย</strong> (FM-07 บันทึกการเรียกคืน และ FM-10 ใบเรียกคืนผลิตภัณฑ์สำเร็จรูป)</p>${tableWrap(`<table><thead><tr><th>ลูกค้า</th><th class="r">จำนวนที่ได้รับ</th></tr></thead><tbody>${[...fw].map(([k, v]) => `<tr><td>${esc(custName(k))}</td><td class="r"><span class="num">${num(v)}</span></td></tr>`).join('')}</tbody></table>`, 'ลูกค้าที่ต้องแจ้งเรียกคืน')}` : '<p class="empty">ยังไม่มีการจ่ายออกให้ลูกค้า</p>'}</section></div>
+    ${activityPanel({ ref: lotNo, label: 'ล็อต', items: lotBaseItems(lot), toRoom: 'qc' })}`;
   }
-  return `<header class="room-head"><div><h1>ไล่ย้อนล็อต</h1><p class="sub">ใส่เลขที่ผลิต 8 หลัก (SOP-PD-07) หรือเลขรับ ดูว่ามาจากวัตถุดิบล็อตไหน ใครส่งมา และถ้ามีปัญหาต้องเรียกคืนจากใคร</p></div></header>
+  const it = lot ? S.items.get(lot.item_code) : null;
+  const acts = lot ? `<div class="acts">${shareBtn([`ล็อต ${lotNo} ${it.name}`, `ป้าย ${lot.status} คงเหลือ ${qty(it.code, lot.qty_left)}${lot.exp_date ? ` หมดอายุ ${thaiDate(lot.exp_date)}` : ''}`, `เปิดดูในระบบ ${absUrl(lotHref(lotNo))}`].join('\n'))}<a class="btn" href="#/doc?type=lot-label&lot=${encodeURIComponent(lotNo)}">${I.qr}พิมพ์ป้ายล็อตพร้อม QR</a></div>` : '';
+  return `<header class="room-head"><div><h1>ไล่ย้อนล็อต${lot ? ` <span class="mono">${esc(lotNo)}</span>` : ''}</h1><p class="sub">ใส่เลขที่ผลิต 8 หลัก (SOP-PD-07) หรือเลขรับ ดูว่ามาจากวัตถุดิบล็อตไหน ใครส่งมา และถ้ามีปัญหาต้องเรียกคืนจากใคร</p></div>${acts}</header>
   <form data-form="trace" class="trace-form" role="search"><label class="sr" for="lotq">เลขที่ผลิตหรือเลขรับ</label><input class="in" id="lotq" name="lot" value="${esc(lotNo)}" placeholder="เช่น ${esc(sample[0] || '')}" list="lotList"><datalist id="lotList">${S.lots.slice(-200).map((l) => `<option value="${l.lot_no}">`).join('')}</datalist><button class="btn btn-solid" type="submit">${I.trace}ไล่ย้อน</button>
   <span class="samples">ลองเลข${sample.map((x) => `<a href="#/trace?lot=${x}">${x}</a>`).join('')}</span></form>${body}`;
 }
@@ -801,7 +856,7 @@ function buildReceive(inp, keep = {}) {
   }
   return {
     summary: `รับเข้า ${it.name} ${qty(inp.item, q)} จาก ${sup.name} ออกเลข ${lotNo} ติดป้ายรอปล่อยผ่าน${poLine ? ` (${poLine})` : ''}`, effects: fx, room: 'store',
-    slip: { k: 'สำเนาบันทึกการตรวจรับ FM-01', no: lotNo, title: `${it.name} ${qty(inp.item, q)}`, lines: [`รับจาก ${sup.name}${inp.po ? ` ตาม ${inp.po}` : ''} ${thaiDate(date)}`, poLine, 'ติดป้ายรอปล่อยผ่านแล้ว ส่งเข้าคิวฝ่ายควบคุมคุณภาพ'].filter(Boolean), stamp: ['รอปล่อยผ่าน', 'crit'], links: [['พิมพ์ FM-01', `#/doc?type=fm01&from=${date}&to=${date}`]].concat(it.make === 'farm' ? [['พิมพ์ FM-23', `#/doc?type=fm23&lot=${lotNo}`]] : []) },
+    slip: { k: 'สำเนาบันทึกการตรวจรับ FM-01', no: lotNo, title: `${it.name} ${qty(inp.item, q)}`, lines: [`รับจาก ${sup.name}${inp.po ? ` ตาม ${inp.po}` : ''} ${thaiDate(date)}`, poLine, 'ติดป้ายรอปล่อยผ่านแล้ว ส่งเข้าคิวฝ่ายควบคุมคุณภาพ'].filter(Boolean), stamp: ['รอปล่อยผ่าน', 'crit'], links: [['พิมพ์ FM-01', `#/doc?type=fm01&from=${date}&to=${date}`]].concat(it.make === 'farm' ? [['พิมพ์ FM-23', `#/doc?type=fm23&lot=${lotNo}`]] : []), qr: lotNo },
   };
 }
 function buildIssue(inp, keep = {}) {
@@ -1164,15 +1219,56 @@ function renderChrome(id) {
   const jobLane = id === 'job' ? S.jobs.find((j) => j.job_id === hp.get('id'))?.lane : '';
   const tabId = id === 'product' ? 'registers' : id === 'doc' ? 'docs' : id === 'item' ? (isFG(S.items.get(hp.get('code'))) ? 'registers' : 'store') : id === 'job' ? (jobLane === 'ผลิต' ? 'prod' : jobLane ? 'process' : '') : id;
   const unread = unreadNotes().length;
-  $('#tabs').innerHTML = ROOMS.map((r) => {
+  // แถบห้องสั้นลง (พี่ขอเพิ่ม 6 พ.ย. 2569 ข้อ A11): ห้องที่ผู้ใช้ไม่มีสิทธิ์เข้าไม่แสดง (เว้นแต่กำลังเปิดหน้าห้องนั้นอยู่ จะได้รู้ว่าอยู่ไหน)
+  // เครื่องมือ 4 อย่างรวมเป็นปุ่มเดียว "เครื่องมือ" กดแล้วมีรายการลงมา แบบแผ่นเครื่องมือบนมือถือ บันทึกถึงฝ่ายยังอยู่บนแถบเพราะมีตัวเลขยังไม่อ่าน
+  closeToolMenu();
+  const toolNow = TOOLS.find((t) => t.id !== 'notes' && t.id === tabId);
+  const notes = TOOLS.find((t) => t.id === 'notes');
+  $('#tabs').innerHTML = ROOMS.filter((r) => canEnter(r, user.role) || r.id === tabId).map((r) => {
     const ok = canEnter(r, user.role);
     const n = ok ? roomAlerts(r.id).filter((a) => a.level === 'crit').length : 0;
     return `<a class="tab${ok ? '' : ' is-locked'}" href="#/${r.id}" ${r.id === tabId ? 'aria-current="page"' : ''}>${ok ? '' : I.lock}${esc(r.title)}${ok ? '' : '<span class="sr"> (ไม่มีสิทธิ์เข้า)</span>'}${n ? `<span class="count" title="วิกฤต ${n} เรื่อง"><span class="sr">วิกฤต </span>${n}<span class="sr"> เรื่อง</span></span>` : ''}</a>`;
   }).join('') + '<span class="tab-sep" aria-hidden="true"></span>'
-    + TOOLS.map((t) => `<a class="tab tab-tool" href="#/${t.id}" ${t.id === tabId ? 'aria-current="page"' : ''}>${I[t.id] || ''}<span class="tt-full">${esc(t.title)}</span><span class="tt-short" aria-hidden="true">${esc(t.short || t.title)}</span>${t.id === 'notes' && unread ? `<span class="count count-ink" title="ยังไม่ได้อ่าน ${unread} ฉบับ"><span class="sr">ยังไม่ได้อ่าน </span>${unread}</span>` : ''}</a>`).join('');
+    + `<a class="tab tab-tool" href="#/notes" ${tabId === 'notes' ? 'aria-current="page"' : ''}>${I.notes}<span class="tt-full">${esc(notes.title)}</span><span class="tt-short" aria-hidden="true">${esc(notes.short)}</span>${unread ? `<span class="count count-ink" title="ยังไม่ได้อ่าน ${unread} ฉบับ"><span class="sr">ยังไม่ได้อ่าน </span>${unread}</span>` : ''}</a>`
+    + `<button type="button" class="tab tab-tool tab-more${toolNow ? ' is-current' : ''}" aria-expanded="false" aria-controls="toolmenu">${I.grid}<span>${toolNow ? esc(toolNow.title) : 'เครื่องมือ'}</span>${toolNow ? '<span class="sr"> (หน้าที่เปิดอยู่)</span>' : ''}${I.chev}</button>`;
+  $('#toolmenu').innerHTML = `<ul>${TOOLS.filter((t) => t.id !== 'notes').map((t) => `<li><a href="#/${t.id}" ${t.id === tabId ? 'aria-current="page"' : ''}>${I[t.id] || ''}<span>${esc(t.title)}</span></a></li>`).join('')}</ul>`;
   renderUserOptions();
+  syncBottomNav(id, unread);
   $('#tabs [aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
   updTabs();
+}
+// ปุ่มเครื่องมือบนแถบห้อง (ข้อ A11): รายการลงมาอยู่นอกแถบที่เลื่อนข้างได้ จึงไม่ถูกตัด ปิดเมื่อกดข้างนอก กด Esc หรือเปลี่ยนหน้า
+function closeToolMenu(focusBtn = false) {
+  const m = $('#toolmenu');
+  if (!m || m.hidden) return;
+  m.hidden = true;
+  const b = $('#tabs .tab-more');
+  b?.setAttribute('aria-expanded', 'false');
+  if (focusBtn) b?.focus();
+}
+function toggleToolMenu(b) {
+  const m = $('#toolmenu');
+  if (!m.hidden) return closeToolMenu();
+  const r = b.getBoundingClientRect();
+  m.style.top = `${Math.round(r.bottom + 4)}px`;
+  m.style.right = `${Math.max(8, Math.round(document.documentElement.clientWidth - r.right))}px`;
+  m.hidden = false;
+  b.setAttribute('aria-expanded', 'true');
+  m.querySelector('a')?.focus();
+}
+function toolMenuInit() {
+  const m = document.createElement('div');
+  m.id = 'toolmenu';
+  m.className = 'toolmenu';
+  m.hidden = true;
+  document.body.appendChild(m);
+  $('#tabs').addEventListener('click', (e) => { const b = e.target.closest('.tab-more'); if (b) toggleToolMenu(b); });
+  m.addEventListener('click', (e) => { if (e.target.closest('a')) closeToolMenu(); });
+  document.addEventListener('click', (e) => { if (!e.target.closest('#toolmenu, #tabs .tab-more')) closeToolMenu(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !m.hidden) closeToolMenu(true); });
+  m.addEventListener('focusout', (e) => { if (!m.contains(e.relatedTarget) && !e.relatedTarget?.closest?.('#tabs .tab-more')) closeToolMenu(); });
+  addEventListener('resize', () => closeToolMenu());
+  $('#tabs').addEventListener('scroll', () => closeToolMenu(), { passive: true });
 }
 // แถบห้องทำงานบนจอแคบเลื่อนข้างได้: มีลูกศรและขอบจางบอกว่ายังมีห้องหรือเครื่องมือต่อ (ตรวจความเรียบร้อย ข้อ 13)
 let updTabs = () => {};
@@ -1200,6 +1296,81 @@ function nbspUnits(root) {
   for (let n = w.nextNode(); n; n = w.nextNode()) { const t = n.nodeValue; if (/\d /.test(t)) { const v = t.replace(UNIT_RE, '$1 '); if (v !== t) n.nodeValue = v; } }
 }
 function markSticky(root) { for (const s of root.querySelectorAll('.work > .stack')) s.classList.toggle('is-sticky', s.offsetHeight < innerHeight - 150); }
+// หัวตารางค้างตอนเลื่อน แบบตรึงแถวใน Google ชีต (รายงานเทียบโปรแกรมดังข้อ A5)
+// กล่องตารางเลื่อนข้างได้ ซึ่งทำให้หัวตารางค้างไม่ได้ จึงเปิดหัวค้างเฉพาะตารางที่กว้างพอดีกล่อง (จอคอม) ตารางที่ล้นยังเลื่อนข้างเหมือนเดิม
+function fitTables(root) {
+  const bar = $('.bar');
+  if (bar) document.documentElement.style.setProperty('--bar-h', `${Math.round(bar.getBoundingClientRect().height)}px`);
+  for (const w of root.querySelectorAll('.table-wrap')) {
+    const t = w.querySelector(':scope > table');
+    w.classList.toggle('is-fit', !!t && !narrowMQ.matches && t.offsetWidth <= w.clientWidth + 1);
+  }
+}
+// กดหัวคอลัมน์เพื่อเรียง แบบ Google ชีตและ IBM Carbon (ข้อ A5): กดครั้งแรกน้อยไปมาก ครั้งที่สองมากไปน้อย ครั้งที่สามกลับลำดับเดิม
+// เรียงแค่การแสดงผล ไม่แก้ข้อมูล จำการเรียงของแต่ละตารางไว้จนปิดแท็บ ตารางที่แบ่งหน้าไม่เรียง (จะเข้าใจผิดว่าเรียงทั้งหมด)
+const sortState = new Map();
+const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+function sortValue(td) {
+  if (!td) return null;
+  if (td.dataset.v !== undefined) { const n = Number(td.dataset.v); return Number.isFinite(n) && td.dataset.v !== '' ? n : td.dataset.v; }
+  const t = td.textContent.replace(/\s+/g, ' ').trim();
+  if (!t || t === '-') return null;
+  const d = t.match(/(\d{1,2}) (ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.) (\d{2})/);
+  if (d) return (2500 + Number(d[3]) - 543) * 10000 + (TH_MONTHS.indexOf(d[2]) + 1) * 100 + Number(d[1]);
+  if (/^-?[\d,]+(\.\d+)?(\s|$)/.test(t)) return Number(t.replace(/,/g, '').match(/-?\d+(\.\d+)?/)[0]);
+  return t;
+}
+function applySort(t, col, dir) {
+  const tb = t.tBodies[0];
+  const rows = [...tb.rows];
+  rows.forEach((r, i) => { if (r.dataset.i === undefined) r.dataset.i = String(i); });
+  const cmp = (a, b) => {
+    if (!dir) return Number(a.dataset.i) - Number(b.dataset.i);
+    const x = sortValue(a.cells[col]), y = sortValue(b.cells[col]);
+    if (x === null && y === null) return Number(a.dataset.i) - Number(b.dataset.i);
+    if (x === null) return 1;
+    if (y === null) return -1;
+    const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'th');
+    return (dir === 'asc' ? c : -c) || Number(a.dataset.i) - Number(b.dataset.i);
+  };
+  rows.sort(cmp).forEach((r) => tb.appendChild(r));
+  [...t.tHead.rows[0].cells].forEach((th, i) => {
+    const on = i === col && dir;
+    if (on) th.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending'); else th.removeAttribute('aria-sort');
+    const b = th.querySelector('.th-sort .ic-sort');
+    if (b) b.outerHTML = on ? (dir === 'asc' ? I.sortUp : I.sortDown) : I.sort;
+  });
+}
+function sortClick(b) {
+  const t = b.closest('table');
+  const col = Number(b.dataset.sortCol);
+  const key = t.dataset.sortKey;
+  const cur = sortState.get(key);
+  const dir = !cur || cur.col !== col ? 'asc' : cur.dir === 'asc' ? 'desc' : '';
+  if (dir) sortState.set(key, { col, dir }); else sortState.delete(key);
+  applySort(t, col, dir);
+}
+function sortTables(root) {
+  // จอมือถือ ตารางทำงานเรียงเป็นแผ่นและซ่อนหัวตาราง ปุ่มเรียงในหัวตารางจะเล็กเกินนิ้ว จึงไม่ใส่
+  if (narrowMQ.matches) return;
+  const page = (location.hash.match(/^#\/([^?]*)/) || [])[1] || '';
+  const tab = new URLSearchParams(location.hash.split('?')[1] || '').get('tab') || '';
+  [...root.querySelectorAll('.table-wrap > table')].forEach((t, k) => {
+    const rows = t.tBodies[0]?.rows || [];
+    if (!t.tHead || rows.length < 5 || t.classList.contains('no-sort') || t.closest('.paper')) return;
+    if (t.closest('.panel')?.querySelector('.pager')) return;
+    if ([...rows].some((r) => [...r.cells].some((c) => c.colSpan > 1))) return;
+    const key = `${page}|${tab}|${k}`;
+    [...t.tHead.rows[0].cells].forEach((th, i) => {
+      const label = th.textContent.trim();
+      if (!label || th.querySelector('.th-sort')) return;
+      th.innerHTML = `<button type="button" class="th-sort" data-sort-col="${i}" aria-label="เรียงตาม${esc(label)}">${th.innerHTML}${I.sort}</button>`;
+    });
+    t.dataset.sortKey = key;
+    const st = sortState.get(key);
+    if (st) applySort(t, st.col, st.dir);
+  });
+}
 // แท็บย่อยที่เลือกอยู่ เลื่อนเข้ามาในจอเสมอ (ข้อ 14)
 function fitSegs(root) {
   for (const s of root.querySelectorAll('.seg')) {
@@ -1305,6 +1476,9 @@ function route() {
   nbspUnits(main);
   markSticky(main);
   fitCharts(main);
+  fitTables(main);
+  sortTables(main);
+  renderQR(main);
   navTitle(main);
   if (slipState.slip) slipState.slip.shown = true;
   const title = room ? room.title : TITLES[id] || TOOLS.find((t) => t.id === id)?.title || '';
@@ -1318,6 +1492,12 @@ function route() {
   document.fonts?.ready.then(() => { if (!main.isConnected) return; fitSegs(main); $('#tabs [aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' }); updTabs(); });
   if (id !== lastId) main.focus({ preventScroll: true });
   else if (wasIn) restoreFocus(fk, main);
+  // มาจากกล่องค้น (Ctrl K) แบบ "รับเข้า" หรือ "เบิก": วางเคอร์เซอร์ที่ช่องจำนวนให้พิมพ์ต่อได้เลย
+  if (palette.focusAfter) {
+    const el = main.querySelector(`form[data-form] [name="${CSS.escape(palette.focusAfter)}"]`);
+    palette.focusAfter = '';
+    if (el && !el.disabled) el.focus();
+  }
   lastId = id;
   snapForms();
 }
@@ -1385,7 +1565,7 @@ function goBack() {
 
 // ---------- ฟอร์มที่กรอกค้าง (QA-029) ----------
 // จำค่าตอนวาดหน้า ถ้าจะออกจากหน้าโดยค่าเปลี่ยนแต่ยังไม่มีการบันทึก ให้ถามก่อน (ช่องเลือกรายการที่พาเปลี่ยนหน้าเองไม่นับ)
-const ENTRY_FORMS = new Set(['receive', 'issue', 'job', 'qc', 'pr', 'amend', 'void', 'note', 'master', 'formula', 'maint', 'prodStatus']);
+const ENTRY_FORMS = new Set(['receive', 'issue', 'job', 'qc', 'pr', 'amend', 'void', 'note', 'noteQuick', 'master', 'formula', 'maint', 'prodStatus']);
 const formSnap = new WeakMap();
 let snapEvents = 0;
 const serial = (f) => JSON.stringify([...f.elements].filter((el) => el.name && !el.dataset.act && !['hidden', 'submit', 'button'].includes(el.type)).map((el) => [el.name, el.type === 'checkbox' ? el.checked : el.value]));
@@ -1493,8 +1673,9 @@ function bind() {
   // ลิงก์ข้ามไปเนื้อหา: เลื่อนและโฟกัสเนื้อหาในหน้าเดิม ไม่เปลี่ยนที่อยู่หน้า (ตัวจัดหน้าอ่าน #main เป็นหน้าที่ไม่มี) WCAG 2.4.1
   $('.skip')?.addEventListener('click', (e) => { e.preventDefault(); main.focus({ preventScroll: true }); main.scrollIntoView({ block: 'start' }); });
   narrowMQ.addEventListener('change', renderUserOptions);
+  toolMenuInit();
   tabsScroller();
-  addEventListener('resize', () => { fitSegs(main); markSticky(main); });
+  addEventListener('resize', () => { fitSegs(main); markSticky(main); fitTables(main); });
   // กันดับเบิลคลิกและกดรัว (QA-002 QA-037): ปุ่มที่บันทึกข้อมูล คลิกที่สองของดับเบิลคลิก หรือคลิกซ้ำภายใน 0.6 วินาที ไม่นับ
   // หลังคลิกแรก หน้าจอวาดใหม่และการ์ดหรือแถวถัดไปอาจเลื่อนมาอยู่ใต้เมาส์พอดี คลิกที่สองจึงไปโดนรายการอื่น (คลิกจากแป้นพิมพ์ไม่โดนกัน)
   const COMMIT_ACTS = new Set(['move', 'release', 'pay', 'prStep', 'prReject', 'toggleActive', 'reset', 'become']);
@@ -1503,6 +1684,8 @@ function bind() {
     if (e.target.closest('[data-back]') && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); return goBack(); }
     const sys = e.target.closest('[data-sys]');
     if (sys) return guard(() => sysAction(sys.dataset.sys));
+    const sb = e.target.closest('.th-sort');
+    if (sb) return sortClick(sb);
     const b = e.target.closest('[data-act]');
     if (!b || b.tagName === 'SELECT' || b.tagName === 'INPUT' || b.disabled) return;
     const act = b.dataset.act;
@@ -1520,6 +1703,7 @@ function bind() {
     if (act === 'pay') recordPayment(b.dataset.inv);
     if (act === 'become') { setUser(b.dataset.user); navReset(); toast(`เปลี่ยนผู้ใช้เป็น ${short(currentUser().name)} ${currentUser().role}`); route(); }
     if (act === 'slipClose') { slipState.slip = null; route(); }
+    if (act === 'share') shareLine(b.dataset.share || '');
     if (act === 'print') window.print();
     if (act === 'export') { download('lots-ข้อมูลจำลอง.csv', toCSV(S.lots, ['lot_no', 'item_code', 'qty_in', 'qty_left', 'date_in', 'exp_date', 'status', 'release_date', 'source', 'source_ref'])); download('moves-ข้อมูลจำลอง.csv', toCSV(S.moves, ['move_id', 'date', 'item_code', 'lot_no', 'type', 'qty', 'party', 'doc_no', 'user_id'])); }
     if (act === 'exportLog') download('ประวัติการแก้ไข-ข้อมูลจำลอง.csv', logCSV());
@@ -1614,6 +1798,7 @@ async function start() {
     return;
   }
   bind();
+  initPalette();
   route();
 }
 start();
