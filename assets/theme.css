@@ -128,7 +128,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .room-head .sub { margin-top: 2px; color: var(--muted); font-size: var(--t-sm); }
 .room-head .sub strong { color: var(--crit); font-weight: 600; }
 .acts { display: flex; gap: 8px; flex-wrap: wrap; }
-.foot { padding-top: 8px; color: var(--muted); font-size: var(--t-xs); line-height: 1.7; }
+.foot { padding-top: 8px; color: var(--muted); font-size: var(--t-xs); line-height: 1.7; text-align: right; }
 /* ท้ายหน้า: ชื่อระบบ เวอร์ชัน ผู้พัฒนา คั่นจากเนื้อหาด้วยรอยปรุ (พี่ขอ 6 พ.ย. 2569) */
 .foot-id { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; text-align: right; gap: 2px 18px; margin: 0 0 6px; padding-top: 12px; border-top: 1px dashed var(--perf); color: var(--ink-2); font-size: var(--t-sm); }
 .foot-id strong { color: var(--navy); font-weight: 700; }
