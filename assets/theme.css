@@ -129,6 +129,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .room-head .sub strong { color: var(--crit); font-weight: 600; }
 .acts { display: flex; gap: 8px; flex-wrap: wrap; }
 .foot { padding-top: 8px; color: var(--muted); font-size: var(--t-xs); line-height: 1.7; }
+/* ท้ายหน้า: ชื่อระบบ เวอร์ชัน ผู้พัฒนา คั่นจากเนื้อหาด้วยรอยปรุ (พี่ขอ 6 พ.ย. 2569) */
+.foot-id { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 18px; margin: 0 0 6px; padding-top: 12px; border-top: 1px dashed var(--perf); color: var(--ink-2); font-size: var(--t-sm); }
+.foot-id strong { color: var(--navy); font-weight: 700; }
 
 /* ---------- ปุ่มและช่องกรอก ---------- */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; padding: 0 16px; border: 1.5px solid var(--navy); border-radius: 5px; background: var(--coupon); color: var(--navy); font-weight: 600; font-size: var(--t-sm); text-decoration: none; cursor: pointer; white-space: nowrap; transition: background-color .16s ease, border-color .16s ease, color .16s ease; }

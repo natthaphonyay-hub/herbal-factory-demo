@@ -1,5 +1,5 @@
 // หน้าเว็บหลัก: ห้องทำงานแยกฝ่ายตามสิทธิ์ หัวข้อยึดเอกสารของโรงงาน (ระเบียบ V8.9, SOP, FM)
-import { CONFIG, LANES, CAN, REQ_FORM, ROOMS, TOOLS, STAGE_OWNER, canEnter, homeRoom } from './config.js';
+import { CONFIG, LANES, CAN, REQ_FORM, ROOMS, TOOLS, STAGE_OWNER, canEnter, homeRoom, APP, APP_BUILD } from './config.js';
 import {
   S, D, loadAll, commit, resetEvents, staff, currentUser, setUser, usable, isFG, isIntUnit, round, nextLotNo, nextJobId, nextInvNo,
   newMove, thaiDate, thaiFullDate, daysBetween, addDays, toCSV, roomAlerts, bomOf, bomNeeds, active, producing, eventById, blockers, withoutEvent, unreadNotes,
@@ -1600,7 +1600,13 @@ function bind() {
   });
 }
 
+// ท้ายหน้า: ชื่อระบบ เวอร์ชัน และผู้พัฒนา อ่านจากไฟล์ที่โหลดอยู่จริง ถ้าเห็นเลขเก่าแปลว่าเบราว์เซอร์ยังจำไฟล์รุ่นเก่า
+function renderFootId() {
+  const d = new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${APP.updated}T00:00:00`));
+  $('.foot')?.insertAdjacentHTML('afterbegin', `<p class="foot-id"><strong>${esc(APP.name)} (ต้นแบบ)</strong><span title="รุ่นไฟล์ ${esc(APP_BUILD)}">เวอร์ชัน ${esc(APP.version)} ปรับปรุง ${esc(d)}</span><span>พัฒนาโดย ${esc(APP.developer)}</span></p>`);
+}
 async function start() {
+  renderFootId();
   try {
     await loadAll();
   } catch (err) {
