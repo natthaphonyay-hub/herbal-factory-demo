@@ -338,12 +338,19 @@ function fyPlan(p) {
 
 // ป้ายล็อตพร้อม QR: ป้ายบอกว่าเป็นของอะไร ล็อตไหน ส่วนป้ายสถานะ (รอปล่อยผ่าน ตรวจสอบแล้ว ไม่ผ่าน) ไม่พิมพ์ลงป้ายนี้
 // เพราะสถานะเปลี่ยนหลังพิมพ์ ให้สแกน QR ดูสถานะล่าสุดในระบบ ป้ายสถานะจริงยังติดแยกตาม SOP ของโรงงาน
+// พิมพ์หลายป้ายพร้อมกัน (ข้อ B6): lots=เลขล็อตคั่นด้วยจุลภาค สูงสุด 60 ป้าย เรียงตามที่เลือก
 function lotLabel(p) {
-  const lot = S.lotMap.get(p.get('lot')) || S.lots[S.lots.length - 1];
+  const ids = String(p.get('lots') || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const lots = ids.length ? [...new Set(ids)].map((id) => S.lotMap.get(id)).filter(Boolean).slice(0, 60) : [];
+  if (!lots.length) lots.push(S.lotMap.get(p.get('lot')) || S.lots[S.lots.length - 1]);
+  return paper('', lots.length > 1 ? `ป้ายล็อต ${lots.length} ป้าย` : 'ป้ายล็อต', `<p class="label-note">แบบตัวอย่างจากระบบต้นแบบ ยังไม่ใช่แบบฟอร์มควบคุมของโรงงาน ถ้าจะใช้จริงต้องแก้แบบฟอร์มผ่านการควบคุมเอกสารก่อน</p>
+    <div class="lot-labels">${lots.map(oneLotLabel).join('')}</div>`);
+}
+function oneLotLabel(lot) {
   const it = S.items.get(lot.item_code);
   const src = lot.source === 'ผลิต' ? `ผลิตตามงาน ${lot.source_ref}` : lot.source === 'รับซื้อ' ? `รับซื้อจาก ${supName(lot.source_ref)}` : lot.source === 'ใบสั่งซื้อ' ? `ซื้อตาม ${lot.source_ref}` : lot.source;
   const url = absUrl(`#/trace?lot=${encodeURIComponent(lot.lot_no)}`);
-  return paper('', 'ป้ายล็อต', `<p class="label-note">แบบตัวอย่างจากระบบต้นแบบ ยังไม่ใช่แบบฟอร์มควบคุมของโรงงาน ถ้าจะใช้จริงต้องแก้แบบฟอร์มผ่านการควบคุมเอกสารก่อน</p>
+  return `
     <div class="lot-label">
       <div class="ll-main">
         <div class="ll-k">${esc(it.kind)} รหัส ${esc(it.code)}</div>
@@ -353,7 +360,7 @@ function lotLabel(p) {
         <p class="ll-st">ป้ายสถานะ ดูล่าสุดจากการสแกน QR</p>
       </div>
       <div class="ll-qr"><span class="qr" data-qr="${esc(url)}" role="img" aria-label="QR เปิดหน้าล็อต ${esc(lot.lot_no)}"></span><span>สแกนเปิดหน้าล็อต</span></div>
-    </div>`);
+    </div>`;
 }
 const RENDER = { fm01, fm02, fm19, req, fm23, fm35, fm43, fm08, fm46, products, formula, 'pr-memo': prMemo, 'pr-report': prReport, po: poDoc, inspect: inspectDoc, pay: payDoc, 'stock-summary': stockSummary, 'fy-plan': fyPlan, 'lot-label': lotLabel };
 export function viewDocs(p) {

@@ -1041,3 +1041,82 @@ th[aria-sort] .th-sort .ic-sort { color: var(--carbon); }
 .toolmenu a[aria-current="page"] { background: var(--carbon-soft); color: var(--navy); }
 .toolmenu .ic { width: 18px; height: 18px; color: var(--navy); }
 @media print { .toolmenu { display: none !important; } }
+
+/* ===== เวอร์ชัน 2.4 ข้อ B จากรายงานเทียบโปรแกรมดัง (พี่สั่ง "แก้อัปทั้งหมด" 6 พ.ย. 2569) ===== */
+/* B1 กล่องคีย์ลัด: แผ่นขาวแบบกล่องค้น ปุ่มแป้นแบบเดียวกับท้ายกล่องค้น */
+.keys { width: min(560px, calc(100vw - 32px)); margin: 88px auto auto; padding: 0; border: 0; border-radius: var(--r); background: var(--coupon); color: var(--ink); box-shadow: var(--shadow-lift); }
+.keys::backdrop { background: rgba(19, 33, 61, .45); }
+.keys-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 12px 6px 20px; }
+.keys-head h2 { margin: 0; font-size: var(--t-md); color: var(--navy); }
+.keys-l { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px 18px; margin: 0; padding: 6px 20px 14px; font-size: var(--t-sm); }
+.keys-l dt { display: flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
+.keys-l dd { margin: 0; color: var(--ink); }
+.keys-then { font-size: var(--t-xs); color: var(--muted); }
+.keys kbd, .foot-keys kbd { display: inline-block; min-width: 22px; text-align: center; font-family: var(--mono); font-size: 11px; line-height: 1.6; padding: 0 6px; border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 4px; background: var(--row-hover); color: var(--ink-2); }
+.keys-n { margin: 0; padding: 10px 20px 14px; border-top: 1px dashed var(--perf); font-size: var(--t-xs); color: var(--muted); line-height: 1.6; }
+.foot-keys { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0; border: 0; background: none; font: inherit; color: var(--navy); cursor: pointer; }
+.foot-keys:hover { color: var(--carbon); }
+@media (max-width: 760px) { .foot-keys { display: none; } }
+
+/* B2 ตัวกรองงานของฉัน: บอกเมื่อบอร์ดใช้ตัวกรองล่าสุดที่จำไว้ */
+.fnote { font-size: var(--t-xs); color: var(--muted); }
+
+/* B3 แถบยังไม่ได้บันทึก: ลอยใต้แถบหัว ไม่ดันเนื้อหา */
+.savebar { position: fixed; left: 50%; transform: translateX(-50%); z-index: 19; width: min(1384px, calc(100vw - 32px)); display: flex; align-items: center; gap: 12px; padding: 9px 12px 9px 16px; border-radius: var(--r); background: var(--navy); color: #fff; box-shadow: var(--shadow-lift); }
+.savebar[hidden] { display: none; }
+.sb-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: #F5C451; }
+.sb-t { flex: 1; min-width: 0; font-size: var(--t-sm); font-weight: 600; }
+.sb-acts { flex: none; display: flex; gap: 8px; }
+.savebar .sb-save { background: #fff; color: var(--navy); border-color: #fff; }
+.savebar .sb-save:hover { background: var(--ground); color: var(--navy); }
+.savebar .sb-clear { background: transparent; color: #fff; border-color: rgba(255, 255, 255, .55); }
+.savebar .sb-clear:hover { background: rgba(255, 255, 255, .12); color: #fff; }
+@media (max-width: 760px) {
+  .savebar { width: calc(100vw - 24px); flex-wrap: wrap; gap: 8px 10px; padding: 10px 12px; }
+  .sb-t { font-size: var(--t-xs); }
+  .sb-acts { width: 100%; }
+  .sb-acts .btn { flex: 1 1 0; min-height: 44px; }
+  body.has-savebar .toasts { top: 210px; }
+}
+
+/* B4 ข้อความมีปุ่มย้อน: นับถอยหลังเห็นได้ ปุ่มขอบขาวบนพื้นกรมท่า */
+.toast-act { align-items: center; }
+.toast-sec { flex: none; font-size: 12px; color: rgba(255, 255, 255, .75); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.toast-b { flex: none; min-height: 32px; padding: 0 12px; border: 1.5px solid rgba(255, 255, 255, .65); border-radius: 5px; background: transparent; color: #fff; font: 700 var(--t-sm) var(--font); cursor: pointer; }
+.toast-b:hover { background: rgba(255, 255, 255, .14); }
+.toast-act .toast-x { margin: 0; }
+
+/* B5 เลื่อนเรื่องเตือนระดับเฝ้าระวังไปพรุ่งนี้ */
+.snz { display: inline-flex; align-items: center; min-height: 32px; padding: 0; border: 0; background: none; font: inherit; font-size: var(--t-xs); font-weight: 600; color: var(--navy); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; white-space: nowrap; }
+.snz:hover { color: var(--carbon); }
+.al-acts { display: flex; flex-direction: column; align-items: flex-end; gap: 0; }
+.c-tools { flex: none; display: inline-flex; align-items: center; gap: 12px; }
+/* คูปองแคบ: ปุ่มเตือนพรุ่งนี้กับส่ง LINE ขึ้นบรรทัดใหม่ชิดขวาแทนการดันคูปองให้กว้างเกินช่อง */
+.c-acts { flex-wrap: wrap; row-gap: 6px; }
+.c-acts .go { min-width: 0; }
+.c-tools { margin-left: auto; }
+details.more.snz-fold { margin-top: 10px; }
+details.more.snz-fold > summary { color: var(--muted); }
+@media (max-width: 760px) { .al-acts { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 0 18px; } }
+@media (pointer: coarse) { .snz { min-height: 44px; } }
+
+/* B6 เลือกหลายแถว: แถบเทาเมื่อยังไม่เลือก เปลี่ยนเป็นกรมท่าเมื่อเลือกแล้ว แถวที่เลือกเป็นสีกระดาษคาร์บอนอ่อน */
+.bulkbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 8px; padding: 8px 12px; border-radius: 5px; background: var(--ground); }
+.bk-n { font-size: var(--t-xs); color: var(--muted); }
+.bk-sub { color: inherit; opacity: .8; font-weight: 400; }
+.bk-acts { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; }
+.bulkbar.is-on { background: var(--navy); color: #fff; }
+.bulkbar.is-on .bk-n { color: #fff; font-size: var(--t-sm); }
+.bulkbar.is-on .btn { background: #fff; color: var(--navy); border-color: #fff; }
+.bulkbar.is-on .btn:hover { background: var(--ground); }
+.bulkbar.is-on .bk-clear { background: transparent; color: #fff; border-color: rgba(255, 255, 255, .55); }
+.bulkbar.is-on .bk-clear:hover { background: rgba(255, 255, 255, .12); color: #fff; }
+th.bk-c, td.bk-c { width: 44px; padding-left: 4px; padding-right: 4px; text-align: center; }
+.bk-l { display: inline-grid; place-items: center; min-width: 32px; min-height: 32px; cursor: pointer; }
+.bk-l input { width: 18px; height: 18px; margin: 0; accent-color: var(--navy); cursor: pointer; }
+tr.is-sel, tr.is-sel:hover { background: var(--carbon-soft); }
+@media (pointer: coarse) { .bk-l { min-width: 44px; min-height: 44px; } }
+@media (max-width: 760px) { .bk-acts { margin-left: 0; width: 100%; } .bk-acts .btn { flex: 1 1 auto; min-height: 44px; } }
+.lot-labels { display: grid; gap: 6mm; justify-items: start; }
+.lot-label { break-inside: avoid; }
+@media print { .savebar, .keys, .bulkbar, .foot-keys { display: none !important; } }

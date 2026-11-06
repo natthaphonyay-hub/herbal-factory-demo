@@ -60,7 +60,7 @@ function store(get, set) {
 export const STORE_CAP = 5000000; // ตัวอักษรโดยประมาณที่เบราว์เซอร์ให้เก็บต่อเว็บ (MDN ราว 5 MiB) ใช้คิดร้อยละที่ใช้ไป
 export class SaveError extends Error { constructor(msg, kind = 'full') { super(msg); this.name = 'SaveError'; this.kind = kind; } }
 // รายการที่ไม่แตะคลัง เลขที่ หรือสถานะ บันทึกต่อท้ายได้แม้อีกแท็บเพิ่งบันทึก
-const INDEPENDENT = new Set(['note', 'noteRead']);
+const INDEPENDENT = new Set(['note', 'noteRead', 'snooze']);
 function readRaw() { try { return localStorage.getItem(KEY); } catch { return null; } }
 function parseEvents(raw) {
   if (raw === null || raw === undefined || raw === '') return [];
@@ -281,6 +281,7 @@ function rebuild(exclude = null) {
   S.bomVer = new Map();
   S.notes = [];
   S.noteReads = new Map();
+  S.snoozes = new Map();
   S.stageOverride = new Map();
   S.lotMap = new Map(S.lots.map((l) => [l.lot_no, l]));
   S.evState = eventStates(S.events);
@@ -359,6 +360,8 @@ function apply(fx, ev) {
   for (const m of fx.maint || []) S.maint.push({ ...m });
   for (const n of fx.notes || []) S.notes.push({ ...n, at: ev.at, from: ev.user, ev: ev.id });
   for (const r of fx.noteRead || []) { if (!S.noteReads.has(r.note)) S.noteReads.set(r.note, []); S.noteReads.get(r.note).push({ user: ev.user, at: ev.at }); }
+  // เลื่อนเรื่องเตือนระดับเฝ้าระวังไปเตือนพรุ่งนี้ (ข้อ B5): จำว่าใครเลื่อน เมื่อไร ถึงวันไหน until ว่าง = ยกเลิกการเลื่อน
+  for (const z of fx.snooze || []) { if (z.until) S.snoozes.set(z.key, { until: z.until, user: ev.user, at: ev.at }); else S.snoozes.delete(z.key); }
 }
 
 export function round(code, q) { const it = S.items.get(code); return it && UNIT_INT.has(it.unit) ? Math.round(q) : Math.round(q * 100) / 100; }
@@ -764,9 +767,15 @@ function buildAlerts() {
   // เรียงวิกฤตก่อน แล้วเรื่องที่หยุดสายการผลิตก่อนเรื่องเงิน
   const rank = { crit: 0, warn: 1, ok: 2 };
   const kind = { blocked: 0, supply: 1, expiry: 2, asset: 3, reorder: 4, qc: 5, proc: 6, ar: 7 };
-  D.alerts = A.sort((a, b) => rank[a.level] - rank[b.level] || kind[a.kind] - kind[b.kind] || a.sort - b.sort);
+  A.sort((a, b) => rank[a.level] - rank[b.level] || kind[a.kind] - kind[b.kind] || a.sort - b.sort);
+  // กุญแจของเรื่องเตือน ใช้จำการเลื่อน (ชนิด ตรา และเรื่องที่ชี้ถึง) เรื่องวิกฤตเลื่อนไม่ได้ เรื่องที่เลื่อนไว้ไม่นับในจำนวนและไม่ขึ้นคูปองจนถึงวันที่เลื่อนไป
+  for (const a of A) a.key = [a.kind, a.stamp, a.item || '', a.lot || '', a.job || '', a.asset || '', a.customer || '', a.stub?.ref || ''].join('|');
+  const snoozeOf = (a) => { const z = a.level !== 'crit' && S.snoozes.get(a.key); return z && z.until > S.today ? z : null; };
+  D.snoozed = A.filter(snoozeOf).map((a) => ({ ...a, snooze: snoozeOf(a) }));
+  D.alerts = A.filter((a) => !snoozeOf(a));
 }
 export const roomAlerts = (room) => (room === 'overview' ? D.alerts : D.alerts.filter((a) => a.rooms.includes(room)));
+export const roomSnoozed = (room) => (room === 'overview' ? D.snoozed : D.snoozed.filter((a) => a.rooms.includes(room)));
 
 // โน้ตถึงฝ่ายที่ผู้ใช้ยังไม่ได้เปิดอ่าน
 export function myRooms(user = S.user) { const role = staff(user).role; return new Set(ROOMS.filter((r) => r.roles.includes(role)).map((r) => r.id)); }

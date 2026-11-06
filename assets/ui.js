@@ -121,6 +121,35 @@ export function toast(msg, level = 'ok') {
   $('#toast').appendChild(el);
   setTimeout(() => el.remove(), level === 'ok' ? 5600 : 9000);
 }
+// ข้อความที่มีปุ่มทำต่อ เช่น ย้อนการย้ายการ์ด (ข้อ B4): นับถอยหลังให้เห็น หยุดนับเมื่อชี้เมาส์หรือโฟกัสอยู่ (WCAG 2.2.1)
+export function toastAction(msg, { label, onAct, ms = 8000 }) {
+  const el = document.createElement('div');
+  el.className = 'toast toast-ok toast-act';
+  el.innerHTML = `<span class="toast-t"></span><span class="toast-sec" aria-hidden="true"></span><button type="button" class="toast-b"></button><button type="button" class="toast-x" aria-label="ปิดข้อความ">${I.close}</button>`;
+  el.querySelector('.toast-t').textContent = msg;
+  const b = el.querySelector('.toast-b');
+  b.textContent = label;
+  const sec = el.querySelector('.toast-sec');
+  let left = ms, last = Date.now(), paused = false, iv = 0;
+  const done = () => { clearInterval(iv); el.remove(); };
+  const tick = () => {
+    const now = Date.now();
+    if (!paused) left -= now - last;
+    last = now;
+    sec.textContent = `อีก ${Math.max(0, Math.ceil(left / 1000))} วินาที`;
+    if (left <= 0) done();
+  };
+  el.addEventListener('mouseenter', () => { paused = true; });
+  el.addEventListener('mouseleave', () => { paused = false; });
+  el.addEventListener('focusin', () => { paused = true; });
+  el.addEventListener('focusout', () => { paused = false; });
+  b.addEventListener('click', () => { done(); onAct(); });
+  el.querySelector('.toast-x').addEventListener('click', done);
+  tick();
+  iv = setInterval(tick, 250);
+  $('#toast').appendChild(el);
+  return el;
+}
 export function download(name, text, type = 'text/csv;charset=utf-8') {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([text], { type }));
@@ -319,7 +348,7 @@ export function coupon(a) {
     <div class="cbody"><h3><span class="sr">${LEVEL_TEXT[a.level]} </span>${subjectHref(a) ? `<a class="c-link" href="${subjectHref(a)}">${keepCodes(esc(a.title))}</a>` : keepCodes(esc(a.title))}</h3>
       <dl class="fields">${a.fields.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${fieldVal(v)}</dd></div>`).join('')}</dl>
       ${a.timeline ? routeBar(a.timeline) : ''}
-      <div class="c-acts">${goOrInfo(a)}${shareBtn(alertText(a), '', 'btn-ico c-share')}</div></div>
+      <div class="c-acts">${goOrInfo(a)}<span class="c-tools">${snzBtn(a, 'เตือนพรุ่งนี้')}${shareBtn(alertText(a), '', 'btn-ico c-share')}</span></div></div>
     ${stamp(a.stamp, a.level)}
   </article>`;
 }
@@ -329,17 +358,26 @@ function alertText(a) {
   const fields = (a.fields || []).filter(([k]) => !/ผู้|คน/.test(k)).slice(0, 4).map(([k, v]) => `${k} ${v}`).join(' ');
   return [`${LEVEL_TEXT[a.level]} ${a.stamp}: ${a.title}`, a.detail || fields, href ? `เปิดดูในระบบ ${absUrl(href)}` : ''].filter(Boolean).join('\n');
 }
-const compactAlert = (a, cls = '') => `<li${cls ? ` class="${cls}"` : ''}>${chip(a.stamp, a.level)}<span class="t">${subjectHref(a) ? `<a href="${subjectHref(a)}">${keepCodes(esc(a.title))}</a>` : keepCodes(esc(a.title))}<span class="d">${esc(a.detail)}</span></span>${goOrInfo(a).replace('class="go"', 'class="go-l"')}</li>`;
+// ผู้ใช้ตอนนี้ทำเรื่องนี้เองได้ไหม (เข้าห้องปลายทางได้) เรื่องที่ฝ่ายอื่นทำเป็นแค่แจ้งให้ทราบ เลื่อนเตือนไม่ได้
+export const canAct = (a) => { const room = ROOMS.find((r) => r.id === String(a.go || '').split('?')[0]); return !room || canEnter(room, currentUser().role); };
+// เลื่อนไปเตือนพรุ่งนี้ (ข้อ B5): เฉพาะเรื่องระดับเฝ้าระวังที่ผู้ใช้ทำเองได้ เรื่องวิกฤตเลื่อนไม่ได้
+const snzBtn = (a, label = 'เตือนอีกครั้งพรุ่งนี้') => (a.level === 'warn' && a.key && canAct(a) ? `<button type="button" class="snz" data-act="snooze" data-key="${esc(a.key)}" aria-label="เลื่อนเรื่อง ${esc(a.title)} ไป${esc(label)}">${esc(label)}</button>` : '');
+const compactAlert = (a, cls = '') => `<li${cls ? ` class="${cls}"` : ''}>${chip(a.stamp, a.level)}<span class="t">${subjectHref(a) ? `<a href="${subjectHref(a)}">${keepCodes(esc(a.title))}</a>` : keepCodes(esc(a.title))}<span class="d">${esc(a.detail)}</span></span><span class="al-acts">${goOrInfo(a).replace('class="go"', 'class="go-l"')}${snzBtn(a)}</span></li>`;
+// เรื่องที่เลื่อนไว้: บอกว่าใครเลื่อน เมื่อไร และจะเตือนอีกวันไหน กดให้กลับมาเตือนตอนนี้ได้
+function snoozedBlock(xs) {
+  if (!xs.length) return '';
+  return `<details class="more snz-fold"><summary>เลื่อนไว้ ${xs.length} เรื่อง จะเตือนอีกครั้งพรุ่งนี้</summary><ul class="alist">${xs.map((a) => `<li>${chip(a.stamp, a.level)}<span class="t">${subjectHref(a) ? `<a href="${subjectHref(a)}">${keepCodes(esc(a.title))}</a>` : keepCodes(esc(a.title))}<span class="d">เลื่อนโดย ${esc(short(staff(a.snooze.user).name))} ${esc(relWhen(a.snooze.at))} เตือนอีกครั้ง ${esc(thaiDate(a.snooze.until))}</span></span><span class="al-acts">${canAct(a) ? `<button type="button" class="snz" data-act="unsnooze" data-key="${esc(a.key)}" aria-label="ให้เรื่อง ${esc(a.title)} กลับมาเตือนตอนนี้">เตือนตอนนี้</button>` : ''}</span></li>`).join('')}</ul></details>`;
+}
 export function alertsBlock(alerts, emptyText, opt = {}) {
   // เรื่องที่ห้องนี้ทำเองได้ขึ้นก่อน เรื่องที่แจ้งให้ทราบ (ฝ่ายอื่นทำ) ตามหลัง ในแต่ละกลุ่มยังเรียงวิกฤตก่อนเหมือนเดิม
-  const mine = (a) => { const room = ROOMS.find((r) => r.id === String(a.go || '').split('?')[0]); return !room || canEnter(room, currentUser().role); };
-  alerts = [...alerts.filter(mine), ...alerts.filter((a) => !mine(a))];
+  alerts = [...alerts.filter(canAct), ...alerts.filter((a) => !canAct(a))];
+  const snz = snoozedBlock(opt.snoozed || []);
   // แท็บอื่นที่ไม่ใช่แท็บแรกของห้อง: พับแจ้งเตือนเป็นแถบเดียว งานของแท็บขึ้นก่อน (QA-026 ตรวจความเรียบร้อย ข้อ 10)
   if (opt.fold && alerts.length) {
     const c = alerts.filter((a) => a.level === 'crit').length;
-    return `<details class="alerts-fold"><summary>${I.right}<span>แจ้งเตือนของฝ่าย ${alerts.length} เรื่อง${c ? ` <strong class="tx-crit">วิกฤต ${c} เรื่อง</strong>` : ''}</span><span class="fold-hint">กดเพื่อดู</span></summary><ul class="alist">${alerts.map((a) => compactAlert(a)).join('')}</ul></details>`;
+    return `<details class="alerts-fold"><summary>${I.right}<span>แจ้งเตือนของฝ่าย ${alerts.length} เรื่อง${c ? ` <strong class="tx-crit">วิกฤต ${c} เรื่อง</strong>` : ''}</span><span class="fold-hint">กดเพื่อดู</span></summary><ul class="alist">${alerts.map((a) => compactAlert(a)).join('')}</ul></details>${snz}`;
   }
-  if (!alerts.length) { const lv = opt.quietLevel || 'ok'; return `<p class="alerts-quiet">${chip(LEVEL_TEXT[lv], lv)} ${esc(emptyText || 'ไม่มีแจ้งเตือนของฝ่ายวันนี้ ระบบจะขึ้นคูปองเมื่อมีของใกล้หมด ของมาไม่ทัน ของใกล้หมดอายุ เครื่องมือใกล้ครบกำหนด หรืองานหยุด')}</p>`; }
+  if (!alerts.length) { const lv = opt.quietLevel || 'ok'; return `<p class="alerts-quiet">${chip(LEVEL_TEXT[lv], lv)} ${esc(emptyText || 'ไม่มีแจ้งเตือนของฝ่ายวันนี้ ระบบจะขึ้นคูปองเมื่อมีของใกล้หมด ของมาไม่ทัน ของใกล้หมดอายุ เครื่องมือใกล้ครบกำหนด หรืองานหยุด')}</p>${snz}`; }
   const top = alerts.slice(0, 3);
   const rest = alerts.slice(3);
   // จอมือถือแสดงคูปองใบแรกใบเดียว ใบที่เหลือรวมไว้ในรายการพับ งานของแท็บขึ้นเร็วขึ้น
@@ -348,6 +386,7 @@ export function alertsBlock(alerts, emptyText, opt = {}) {
   return `<section class="alerts" aria-labelledby="al-h"><h2 id="al-h" class="sr">แจ้งเตือน ${alerts.length} เรื่อง</h2>
     <div class="coupons">${top.map(coupon).join('')}</div>
     ${nPhone ? `<details class="more${nDesk ? '' : ' ph-only'}"><summary><span class="ph-hide">เรื่องอื่นอีก ${nDesk} เรื่อง</span><span class="ph-only">เรื่องอื่นอีก ${nPhone} เรื่อง</span></summary><ul class="alist">${phoneRest.map((a) => compactAlert(a, 'ph-only')).join('')}${rest.map((a) => compactAlert(a)).join('')}</ul></details>` : ''}
+    ${snz}
   </section>`;
 }
 export const seg = (room, tabs, cur, extra = '') => `<nav class="seg" aria-label="งานในห้อง">${tabs.map(([k, t]) => `<a href="#/${room}?tab=${k}${extra}" ${k === cur ? 'aria-current="page"' : ''}>${esc(t)}</a>`).join('')}</nav>`;

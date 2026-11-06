@@ -292,6 +292,85 @@ await ev(`document.querySelector('dialog.sheet[open] .pal-x')?.click(); true`);
 check('A3 มือถือมีแถบล่าง 4 ปุ่ม ห้องของฉันเป็นหน้าปัจจุบัน แผ่นเครื่องมือเปิดได้', bn.shown && bn.n === 4 && bn.home === 'page' && sheetN === 4, JSON.stringify(bn));
 await open('store', 1440);
 
+// ---------- ของใหม่เวอร์ชัน 2.4 (ข้อ B จากรายงานเทียบโปรแกรมดัง) ----------
+const press = async (k, code, modifiers = 0) => { for (const type of ['rawKeyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: k, code, modifiers, windowsVirtualKeyCode: VK[k] || k.toUpperCase().charCodeAt(0) }); };
+await setUser('U01');
+await go('store?tab=card');
+await press('?', 'Slash', 8);
+await sleep(250);
+const keysOpen = await ev(`({ open: !!document.querySelector('dialog.keys[open]'), rows: document.querySelectorAll('dialog.keys .keys-l dt').length, hasR: [...document.querySelectorAll('dialog.keys .keys-l dd')].some((d) => d.textContent.includes('รับเข้า')) })`);
+await key('Escape', 'Escape');
+await sleep(200);
+await press('g', 'KeyG');
+await press('h', 'KeyH');
+await sleep(500);
+const afterGH = await ev(`location.hash`);
+await press('r', 'KeyR');
+await sleep(500);
+await ready();
+const afterR = await ev(`location.hash`);
+await ev(`document.querySelector('#main form[data-form="receive"] [name="qty"]')?.focus(); true`);
+await press('g', 'KeyG');
+await press('n', 'KeyN');
+await sleep(400);
+check('B1 กด ? เห็นคีย์ลัด กด g แล้ว h กลับห้องของฉัน กด r เปิดฟอร์มรับเข้า และคีย์ลัดไม่ทำงานตอนพิมพ์ในช่องกรอก', keysOpen.open && keysOpen.rows >= 6 && keysOpen.hasR && afterGH === '#/store' && afterR === '#/store?tab=receive' && (await ev(`location.hash`)) === '#/store?tab=receive', `${JSON.stringify(keysOpen)} ${afterGH} ${afterR}`);
+
+await go('store?tab=receive&item=91001');
+await ev(`(() => { const q = document.querySelector('#main form[data-form="receive"] [name="qty"]'); q.value = '120'; q.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+await sleep(300);
+const sb = await ev(`(() => { const b = document.querySelector('.savebar'); return { shown: !!b && !b.hidden, text: b?.querySelector('.sb-t')?.textContent || '', save: b?.querySelector('.sb-save')?.textContent.trim() || '', below: b ? b.getBoundingClientRect().top >= document.querySelector('.bar').getBoundingClientRect().bottom : false }; })()`);
+await ev(`document.querySelector('.savebar .sb-clear').click(); true`);
+await sleep(500);
+await ready();
+const sbAfter = await ev(`({ hidden: document.querySelector('.savebar').hidden, qty: document.querySelector('#main form[data-form="receive"] [name="qty"]')?.value })`);
+check('B3 กรอกค้างขึ้นแถบยังไม่ได้บันทึกใต้แถบหัว บอกชื่อฟอร์ม ปุ่มบันทึกใช้ชื่อเดียวกับปุ่มของฟอร์ม กดล้างแล้วแถบหาย', sb.shown && sb.text.includes('ฟอร์มรับเข้า') && sb.save.length > 0 && sb.below && sbAfter.hidden && sbAfter.qty === '', `${JSON.stringify(sb)} ${JSON.stringify(sbAfter)}`);
+
+await go('store');
+const snzBefore = await ev(`(async () => { const { D } = await import('./assets/data.js'); return { n: document.querySelectorAll('#main [data-act="snooze"]').length, critBtn: [...document.querySelectorAll('#main .coupon.lv-crit [data-act="snooze"]')].length, active: D.alerts.length }; })()`);
+await ev(`document.querySelector('#main [data-act="snooze"]')?.click(); true`);
+await sleep(600);
+await ready();
+const snzAfter = await ev(`(async () => { const { D, S } = await import('./assets/data.js'); const last = S.events[S.events.length - 1]; return { snoozed: D.snoozed.length, active: D.alerts.length, fold: document.querySelectorAll('#main .snz-fold li').length, ev: last?.type, until: last?.effects?.snooze?.[0]?.until > S.today }; })()`);
+await ev(`document.querySelector('#main .snz-fold [data-act="unsnooze"]')?.click(); true`);
+await sleep(600);
+await ready();
+const snzBack = await ev(`(async () => { const { D } = await import('./assets/data.js'); return { snoozed: D.snoozed.length, fold: document.querySelectorAll('#main .snz-fold').length }; })()`);
+check('B5 เลื่อนเรื่องเฝ้าระวังไปเตือนพรุ่งนี้ บันทึกในประวัติ ย้ายไปรายการที่เลื่อนไว้ กดให้กลับมาเตือนได้ เรื่องวิกฤตไม่มีปุ่มเลื่อน', snzBefore.n > 0 && snzBefore.critBtn === 0 && snzAfter.snoozed === 1 && snzAfter.active === snzBefore.active - 1 && snzAfter.fold === 1 && snzAfter.ev === 'snooze' && snzAfter.until && snzBack.snoozed === 0 && snzBack.fold === 0, `${JSON.stringify(snzBefore)} ${JSON.stringify(snzAfter)} ${JSON.stringify(snzBack)}`);
+
+await setUser('U03');
+await go('prod?only=mine');
+const mineChip = await ev(`(() => { const a = [...document.querySelectorAll('#main .fchip')].find((x) => x.textContent.includes('งานของฉัน')); return { cur: a?.getAttribute('aria-current') === 'true', n: Number(a?.querySelector('.num')?.textContent || -1), cards: document.querySelectorAll('#main .kcard').length }; })()`);
+await go('prod');
+const mineKept = await ev(`({ cur: [...document.querySelectorAll('#main .fchip')].find((x) => x.textContent.includes('งานของฉัน'))?.getAttribute('aria-current') === 'true', note: !!document.querySelector('#main .fnote') })`);
+await go('prod?only=all');
+check('B2 บอร์ดมีตัวกรองงานของฉัน จำนวนการ์ดตรงกับตัวเลขบนชิป เปิดบอร์ดใหม่ยังใช้ตัวกรองล่าสุดของผู้ใช้คนนี้', mineChip.cur && mineChip.n === mineChip.cards && mineKept.cur && mineKept.note, `${JSON.stringify(mineChip)} ${JSON.stringify(mineKept)}`);
+
+const undoCase = await ev(`(() => { const cols = [...document.querySelectorAll('#main .kanban .kcol')]; for (let i = 1; i < cols.length; i++) { for (const b of cols[i].querySelectorAll('.k-next:not([disabled])')) { if (!/รอปล่อยผ่าน/.test(b.getAttribute('aria-label') || '')) return { job: b.dataset.job, from: cols[i].dataset.drop }; } } return null; })()`);
+let undoOk = false, undoDetail = 'ไม่พบการ์ดที่ส่งต่อแบบไม่เบิกของ';
+if (undoCase) {
+  await ev(`document.querySelector('#main .kcard[data-job="${undoCase.job}"] .k-next').click(); true`);
+  await sleep(900);
+  const moved = await ev(`({ at: document.querySelector('#main .kcard[data-job="${undoCase.job}"]')?.closest('[data-drop]')?.dataset.drop, toast: !!document.querySelector('.toast-act .toast-b') })`);
+  await ev(`document.querySelector('.toast-act .toast-b')?.click(); true`);
+  await sleep(900);
+  const back = await ev(`(async () => { const { S } = await import('./assets/data.js'); const last = S.events[S.events.length - 1]; return { at: document.querySelector('#main .kcard[data-job="${undoCase.job}"]')?.closest('[data-drop]')?.dataset.drop, undo: !!last?.undo, type: last?.type, kept: S.events.filter((e) => e.type === 'stage' && e.effects?.stage?.[0]?.job_id === '${undoCase.job}').length }; })()`);
+  undoOk = moved.at !== undoCase.from && moved.toast && back.at === undoCase.from && back.undo && back.type === 'stage' && back.kept >= 2;
+  undoDetail = `${undoCase.job} ${undoCase.from} ไป ${moved.at} ย้อนแล้วอยู่ ${back.at} รายการย้าย ${back.kept}`;
+}
+check('B4 ส่งต่อการ์ดแล้วกดย้อนกลับในข้อความได้ การ์ดกลับขั้นเดิม ประวัติเก็บทั้งการย้ายและการย้อน', undoOk, undoDetail);
+
+await setUser('U00');
+await go('qc?tab=released');
+await ev(`(() => { const cbs = document.querySelectorAll('#main table[data-bulk] .bk-cb'); for (const c of [cbs[0], cbs[1]]) { c.checked = true; c.dispatchEvent(new Event('change', { bubbles: true })); } return true; })()`);
+await sleep(200);
+const bulk = await ev(`(() => { const bar = document.querySelector('#main [data-bulk-bar]'); const all = document.querySelector('#main .bk-all'); return { on: bar.classList.contains('is-on'), text: bar.querySelector('.bk-n').textContent, mixed: all.indeterminate, lots: [...document.querySelectorAll('#main .bk-cb:checked')].map((c) => c.value) }; })()`);
+await ev(`document.querySelector('#main [data-bulk-act="labels"]').click(); true`);
+await sleep(700);
+await ready();
+await sleep(500);
+const labels = await ev(`({ hash: location.hash, n: document.querySelectorAll('.lot-label').length, qr: document.querySelectorAll('.lot-label .qr svg').length })`);
+check('B6 เลือกหลายแถวในบันทึกการปล่อยผ่าน แถบบอกจำนวนที่เลือก กดพิมพ์ป้ายล็อตได้ป้ายครบทุกล็อตพร้อม QR', bulk.on && bulk.text.includes('เลือก 2') && bulk.mixed && labels.hash.includes('lots=') && labels.n === new Set(bulk.lots).size && labels.qr === labels.n, `${JSON.stringify(bulk)} ${JSON.stringify(labels)}`);
+
 check('ไม่มีข้อผิดพลาดของสคริปต์ระหว่างทดสอบ', errors.length === 0, [...new Set(errors)].slice(0, 3).join(' | '));
 
 let fail = 0;

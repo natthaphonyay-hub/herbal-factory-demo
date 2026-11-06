@@ -2,7 +2,7 @@
 import { CONFIG, LANES, CAN, REQ_FORM, ROOMS, TOOLS, STAGE_OWNER, canEnter, homeRoom, APP, APP_BUILD } from './config.js';
 import {
   S, D, loadAll, commit, resetEvents, staff, currentUser, setUser, usable, isFG, isIntUnit, round, nextLotNo, nextJobId, nextInvNo,
-  newMove, thaiDate, thaiFullDate, daysBetween, addDays, toCSV, roomAlerts, bomOf, bomNeeds, active, producing, eventById, blockers, withoutEvent, unreadNotes,
+  newMove, thaiDate, thaiFullDate, daysBetween, addDays, toCSV, roomAlerts, roomSnoozed, bomOf, bomNeeds, active, producing, eventById, blockers, withoutEvent, unreadNotes,
   onExternalChange, repairStore, eventsJSON, owedOf, paidOf, poLeft,
 } from './data.js';
 import { fefoPick } from './logic.js';
@@ -10,7 +10,7 @@ import {
   $, esc, num, qn, qty, qh, money, baht, mill, short, I, svg, chip, lotChip, stamp, tableWrap, supName, custName, who, deptLegend,
   toast, download, can, deny, roleNote, nav, setHash, slipState, showSlip, slipBlock, head, alertsBlock, seg, itemPicker, codeOf, monthLabel, actions, itemLink, jobLink, jobHref,
   openDialog, closeDialog, storeBanner, backBar, roleAbbr, formCtx, dateTime,
-  shareLine, shareBtn, renderQR, absUrl, lotHref,
+  shareLine, shareBtn, renderQR, absUrl, lotHref, toastAction, canAct,
 } from './ui.js';
 import { viewBuy, buyHandlers, buildPR, viewInspect, inspectQueue } from './buy.js';
 import { viewPlan } from './plan.js';
@@ -19,6 +19,7 @@ import { viewDocs } from './docs.js';
 import { viewNotes, notesHandlers, afterNotes } from './notes.js';
 import { viewItem, viewJob, activityPanel } from './detail.js';
 import { initPalette, syncBottomNav, palette } from './palette.js';
+import { initQuick, updSaveBar, viewGet, viewSet } from './quick.js';
 
 // ================= ภาพรวมโรงงาน =================
 export function monthSales() {
@@ -149,7 +150,7 @@ function viewOverview(p) {
     const c = a.filter((x) => x.level === 'crit').length, w = a.filter((x) => x.level === 'warn').length;
     return `<tr><td>${canEnter(r, currentUser().role) ? `<a href="#/${r.id}">${esc(r.title)}</a>` : `<span class="muted">${I.lock}${esc(r.title)}</span>`}</td><td class="r"><span class="num"${c ? ' style="color:var(--crit)"' : ''}>${c}</span></td><td class="r"><span class="num">${w}</span></td><td>${a[0] ? esc(a[0].title) : '<span class="muted">ไม่มี</span>'}</td></tr>`;
   }).join('');
-  return head('ภาพรวมโรงงาน', alerts) + alertsBlock(alerts, 'ไม่มีเรื่องต้องตามวันนี้') + `
+  return head('ภาพรวมโรงงาน', alerts) + alertsBlock(alerts, 'ไม่มีเรื่องต้องตามวันนี้', { snoozed: roomSnoozed('overview') }) + `
   <div class="work ov-top">
     <section class="panel" aria-labelledby="map-h"><div class="panel-h"><h2 id="map-h">สายการผลิต วัตถุดิบถึงลูกค้า</h2><span class="meta">งานในสาย ${num(active1.length)} งาน (แปรรูป ${active1.filter((j) => j.lane === 'แปรรูป').length} ผลิต ${active1.filter((j) => j.lane === 'ผลิต').length}) รอปล่อยผ่าน ${num(D.qcQueue.length)} ล็อต${qcLate ? ` เกิน ${CONFIG.qcWaitWarnDays} วัน ${qcLate} ล็อต` : ''}</span></div>${flowMap()}<p class="panel-foot">ตั๋วซ้อนหนา = งานหรือล็อตมาก ข้อมูล ณ ${esc(thaiDate(S.today))}</p></section>
     <section class="panel" aria-labelledby="rs-h"><div class="panel-h"><h2 id="rs-h">แจ้งเตือนแยกตามฝ่าย</h2><span class="meta">ของถึงจุดสั่งซื้อ ${num(inv.length)} รายการ${invCrit ? ` วิกฤต ${invCrit}` : ''}</span></div>
@@ -226,22 +227,33 @@ function boardHelp(laneKey, canMove, allowMove) {
 function laneBoard(laneKey, p, allowMove = true) {
   const L = LANES[laneKey];
   const q = (p.get('q') || '').trim().toLowerCase();
-  const only = p.get('only') || '';
+  // ตัวกรองบอร์ด (ข้อ B2): ทุกงาน ติดขัดหรือรอนาน งานของฉัน (การ์ดที่อยู่ในมือผู้ใช้ตอนนี้)
+  // เปิดบอร์ดโดยไม่ระบุตัวกรอง ใช้ตัวกรองล่าสุดของผู้ใช้คนนี้บนบอร์ดนี้ (จำในเบราว์เซอร์เครื่องนั้น)
+  const FILTERS = ['all', 'stuck', 'mine'];
+  const vKey = `board-${S.user}-${laneKey}`;
+  let only = p.get('only');
+  let restored = false;
+  if (FILTERS.includes(only)) viewSet(vKey, only);
+  else { only = viewGet(vKey); restored = FILTERS.includes(only) && only !== 'all'; if (!restored) only = 'all'; }
   const target = p.get('job');
   const all = D.board.filter((c) => c.job.lane === laneKey);
   const stuck = (c) => c.blocked || (c.stage === 'รอปล่อยผ่าน' && c.days > CONFIG.qcWaitWarnDays);
-  const cards = all.filter((c) => (!q || c.it.name.toLowerCase().includes(q) || c.job.job_id.toLowerCase().includes(q) || (c.job.out_lot || '').includes(q)) && (only !== 'stuck' || stuck(c)));
+  const mine = (c) => c.owner?.user_id === S.user;
+  const cards = all.filter((c) => (!q || c.it.name.toLowerCase().includes(q) || c.job.job_id.toLowerCase().includes(q) || (c.job.out_lot || '').includes(q)) && (only !== 'stuck' || stuck(c)) && (only !== 'mine' || mine(c)));
   const canMove = allowMove && can(`move${laneKey}`);
   const here = (location.hash.match(/^#\/([^?]*)/) || [])[1] || (laneKey === 'ผลิต' ? 'prod' : 'process');
   const base = new URLSearchParams(location.hash.split('?')[1] || '');
   const link = (o) => { const x = new URLSearchParams(base); for (const [k, v] of Object.entries(o)) { if (v) x.set(k, v); else x.delete(k); } x.delete('job'); return `#/${here}?${x}`; };
   return `<section class="panel lane" aria-labelledby="lane-${laneKey}"><div class="panel-h"><h2 id="lane-${laneKey}">บอร์ดงาน${esc(L.title)} งานอยู่ขั้นไหน ในมือใคร</h2><span class="meta">${cards.length} จาก ${all.length} งาน</span></div>
     <div class="filters">
-      <a class="fchip" href="${link({ only: '' })}" ${only ? '' : 'aria-current="true"'}>ทุกงาน <span class="num">${all.length}</span></a>
+      <a class="fchip" href="${link({ only: 'all' })}" ${only === 'all' ? 'aria-current="true"' : ''}>ทุกงาน <span class="num">${all.length}</span></a>
       <a class="fchip" href="${link({ only: 'stuck' })}" ${only === 'stuck' ? 'aria-current="true"' : ''}>ติดขัดหรือรอนาน <span class="num">${all.filter(stuck).length}</span></a>
+      <a class="fchip" href="${link({ only: 'mine' })}" ${only === 'mine' ? 'aria-current="true"' : ''}>งานของฉัน <span class="num">${all.filter(mine).length}</span></a>
+      ${restored ? '<span class="fnote">ใช้ตัวกรองล่าสุดของคุณ</span>' : ''}
       <form class="search" data-form="boardSearch" data-here="${esc(here)}" role="search"><label class="sr" for="bq-${laneKey}">ค้นงานบนบอร์ด${esc(L.title)}</label><input class="in" id="bq-${laneKey}" name="q" value="${esc(p.get('q') || '')}" placeholder="ค้นชื่อยา เลขงาน เลขที่ผลิต"><button class="btn btn-sm" type="submit">${I.search}ค้น</button></form></div>
     ${boardHelp(laneKey, canMove, allowMove)}
     ${q && !cards.length ? `<p class="empty">ไม่พบงานที่ตรงกับ "${esc(p.get('q') || '')}" <a href="${link({ q: '' })}">ล้างคำค้น</a></p>` : ''}
+    ${!q && only === 'mine' && !cards.length ? `<p class="empty">ตอนนี้ไม่มีงานบนบอร์ดนี้ที่อยู่ในมือคุณ <a href="${link({ only: 'all' })}">ดูทุกงาน</a></p>` : ''}
     <div class="kanban">${L.stages.map((st) => {
       const cs = cards.filter((c) => c.stage === st);
       return `<section class="kcol${cs.length ? '' : ' is-empty'}" data-drop="${esc(st)}" data-lane="${esc(laneKey)}" aria-label="${esc(st)} ${cs.length} งาน"><div class="kcol-h"><strong>${esc(st)}</strong><span class="num">${cs.length}</span></div><div class="kcol-s">${esc(L.sop[st])}</div><div class="kcol-b">${cs.map((c) => kcard(c, canMove, target)).join('') || '<div class="k-empty">ไม่มีงาน</div>'}</div></section>`;
@@ -344,13 +356,31 @@ function doMove(jobId, dir, out) {
     fx.jobs = [{ job_id: jobId, patch: { status: 'qc', out_lot: lotNo, end_date: S.today, actual_qty: out.actual, yield_pct: out.yieldPct, yield_note: out.note } }];
     summary += ` ได้จริง ${qty(job.item_code, out.actual)} ผลผลิต ${num(out.yieldPct, 1)}%${out.note ? ` (${out.note})` : ''} ออกเลขที่ผลิต ${lotNo} ติดป้ายรอปล่อยผ่าน`;
   }
-  commit({ type: 'stage', summary, effects: fx });
+  const ev = commit({ type: 'stage', summary, effects: fx });
   const room = card.job.lane === 'ผลิต' ? 'prod' : 'process';
   if (lotNo) showSlip(room, { k: 'สำเนาเลขที่ผลิต SOP-PD-07', no: lotNo, title: `${card.it.name} ${qty(card.it.code, out.actual)}`, lines: [`ได้จริง ${qty(card.it.code, out.actual)} จากที่สั่ง ${qty(card.it.code, job.qty)} ผลผลิต ${num(out.yieldPct, 1)}%${out.note ? ` เหตุผล ${out.note}` : ''}`, `งาน ${jobId} ส่งเข้าคิวฝ่ายควบคุมคุณภาพแล้ว ของยังเบิกไม่ได้จนกว่าจะปล่อยผ่าน`], stamp: ['รอปล่อยผ่าน', 'crit'], qr: lotNo });
   else if (fx.inputs) showSlip(room, { k: 'สำเนาใบเบิกวัตถุดิบ', no: jobId, title: `เบิกวัตถุดิบตามสูตร ${card.it.name}`, lines: [`${fx.inputs.length} ล็อต เรียงหมดอายุก่อนจ่ายก่อน`], stamp: ['จ่ายแล้ว', 'ink'], links: [['พิมพ์ใบเบิก FM-28 ถึง FM-33', `#/doc?type=req&job=${encodeURIComponent(jobId)}`]] });
-  else toast(summary);
+  else offerUndo(ev, card, dir, to, summary);
   cardMotion(jobId, () => nav.route());
   return true;
+}
+// ย้อนการย้ายการ์ด (ข้อ B4): เฉพาะการย้ายที่ไม่มีการเบิกของหรือออกเลขที่ผลิตพ่วง กดย้อนได้ภายใน 8 วินาที
+// การย้อนเป็นรายการใหม่ในประวัติ ไม่ลบรายการเดิม ส่วนรับ เบิก ปล่อยผ่าน ยังแก้ด้วยหน้าแก้ไขพร้อมเหตุผลเหมือนเดิม
+function offerUndo(ev, card, dir, to, summary) {
+  const jobId = card.job.job_id, from = card.stage;
+  const back = moveCheck(jobId, -dir);
+  if (!ev || back.error || back.deny || back.to !== from || (card.job.status === 'waiting' && -dir > 0)) return toast(summary);
+  toastAction(`ย้าย ${jobId} ไปขั้น ${to} แล้ว`, { label: 'ย้อนกลับ', onAct: () => guard(() => undoMove(jobId, from, to, -dir, ev.id)) });
+}
+function undoMove(jobId, from, to, dir, evId) {
+  const card = D.board.find((c) => c.job.job_id === jobId);
+  if (!card || card.stage !== to || S.evState.get(evId)?.status !== 'active') return toast('ย้อนไม่ได้แล้ว การ์ดถูกย้ายหรือแก้ต่อไปแล้ว ใช้ลูกศรบนการ์ดแทน', 'warn');
+  const c = moveCheck(jobId, dir);
+  if (c.deny) return deny(c.deny, c.what);
+  if (c.error || c.to !== from) return toast(c.error || 'ย้อนไม่ได้แล้ว ใช้ลูกศรบนการ์ดแทน', 'warn');
+  commit({ type: 'stage', undo: evId, summary: `ย้อนการย้าย ${jobId} ${card.it.name} จาก "${to}" กลับไป "${from}" (กดย้อนภายใน 8 วินาที)`, effects: { stage: [{ job_id: jobId, stage: from }] } });
+  toast(`ย้อน ${jobId} กลับไปขั้น ${from} แล้ว`);
+  cardMotion(jobId, () => nav.route());
 }
 
 // ================= ฝ่ายแปรรูปสมุนไพร และ ฝ่ายผลิต =================
@@ -371,7 +401,7 @@ function viewLaneRoom(p, room) {
   else if (tab === 'plan') body = viewPlan(p, lane, room.id);
   else body = laneBoard(lane, p);
   // ห้องที่ทำงานบนบอร์ด พับเรื่องเตือนเป็นแถบเดียวทุกแท็บ บอร์ดขึ้นในจอแรก (รายงานเทียบโปรแกรมดังข้อ A2 พี่สั่ง 6 พ.ย. 2569)
-  return head(`ห้องทำงาน${L.title}`, alerts, acts) + slipBlock(room.id) + alertsBlock(alerts, '', { fold: true }) + seg(room.id, tabs, tab) + body;
+  return head(`ห้องทำงาน${L.title}`, alerts, acts) + slipBlock(room.id) + alertsBlock(alerts, '', { fold: true, snoozed: roomSnoozed(room.id) }) + seg(room.id, tabs, tab) + body;
 }
 
 function jobForm(room, p) {
@@ -439,7 +469,7 @@ function viewStore(p) {
   else if (tab === 'plan') body = viewPlan(p, 'store', 'store');
   else body = storeStock(p);
   // แท็บอื่นนอกจากคงคลัง: พับการ์ดเตือนไว้ ให้งานของแท็บขึ้นก่อน (QA-026 ตรวจความเรียบร้อย ข้อ 10)
-  return head('ห้องทำงานฝ่ายจัดซื้อและคลัง', alerts, acts) + slipBlock('store') + alertsBlock(alerts, '', { fold: tab !== 'stock' }) + seg('store', tabs, tab) + body;
+  return head('ห้องทำงานฝ่ายจัดซื้อและคลัง', alerts, acts) + slipBlock('store') + alertsBlock(alerts, '', { fold: tab !== 'stock', snoozed: roomSnoozed('store') }) + seg('store', tabs, tab) + body;
 }
 
 function poStubs(limit = 5) {
@@ -587,7 +617,7 @@ function viewQC(p) {
   else if (tab === 'rejected') body = qcRejected();
   else body = qcQueue(p);
   // คิวปล่อยผ่านคืองานหลักของห้องนี้ พับเรื่องเตือนเป็นแถบเดียวทุกแท็บ (ข้อ A2)
-  return head('ห้องทำงานฝ่ายควบคุมคุณภาพ', alerts) + slipBlock('qc') + alertsBlock(alerts, '', { fold: true }) + seg('qc', tabs, tab) + body;
+  return head('ห้องทำงานฝ่ายควบคุมคุณภาพ', alerts) + slipBlock('qc') + alertsBlock(alerts, '', { fold: true, snoozed: roomSnoozed('qc') }) + seg('qc', tabs, tab) + body;
 }
 function qcQueue(p) {
   const target = p.get('lot');
@@ -618,9 +648,51 @@ function qcReleased(p) {
   const fchip = (k, t) => `<a class="fchip" href="#/qc?tab=released&kind=${k}" ${k === kind ? 'aria-current="true"' : ''}>${t}</a>`;
   return `<section class="panel" aria-labelledby="qr-h"><div class="panel-h"><h2 id="qr-h">บันทึกการปล่อยผ่าน${kind === 'fg' ? 'ผลิตภัณฑ์สำเร็จรูป FM-35' : ''}</h2><a class="btn btn-sm" href="#/doc?type=fm35&month=${S.today.slice(0, 7)}">${I.print}พิมพ์ FM-35 เดือนนี้</a></div>
   <div class="filters">${fchip('fg', 'ยาสำเร็จรูป')}${fchip('raw', 'วัตถุดิบ')}${fchip('all', 'ทั้งหมด')}</div>
-  ${tableWrap(`<table><thead><tr><th>ว/ด/ป</th><th>รายการ</th><th>Lot No.</th><th>ผลการตรวจ</th><th>ผู้ตรวจ</th><th>ผู้อนุมัติปล่อยผ่าน</th>${rs.some((r) => r.note) ? '<th>หมายเหตุ</th>' : ''}</tr></thead><tbody>
-  ${rs.map((r) => `<tr><td class="nowrap">${esc(thaiDate(r.date))}</td><td>${itemLink(r.item_code)}</td><td class="code">${esc(r.lot_no)}</td><td>${r.result === 'ผ่าน' ? lotChip('ตรวจสอบแล้ว') : lotChip('ไม่ผ่าน')}</td><td>${esc(short(staff(r.checker_id).name))}</td><td>${esc(short(staff(r.approver_id).name))}</td>${rs.some((x) => x.note) ? `<td>${esc(r.note)}</td>` : ''}</tr>`).join('')}
+  ${bulkBar('rel')}
+  ${tableWrap(`<table data-bulk="rel"><thead><tr><th class="bk-c" data-nosort><label class="bk-l"><input type="checkbox" class="bk-all" aria-label="เลือกทุกแถวในตารางนี้"></label></th><th>ว/ด/ป</th><th>รายการ</th><th>Lot No.</th><th>ผลการตรวจ</th><th>ผู้ตรวจ</th><th>ผู้อนุมัติปล่อยผ่าน</th>${rs.some((r) => r.note) ? '<th>หมายเหตุ</th>' : ''}</tr></thead><tbody>
+  ${rs.map((r) => `<tr><td class="bk-c"><label class="bk-l"><input type="checkbox" class="bk-cb" value="${esc(r.lot_no)}" aria-label="เลือกล็อต ${esc(r.lot_no)}"></label></td><td class="nowrap">${esc(thaiDate(r.date))}</td><td>${itemLink(r.item_code)}</td><td class="code">${esc(r.lot_no)}</td><td>${r.result === 'ผ่าน' ? lotChip('ตรวจสอบแล้ว') : lotChip('ไม่ผ่าน')}</td><td>${esc(short(staff(r.checker_id).name))}</td><td>${esc(short(staff(r.approver_id).name))}</td>${rs.some((x) => x.note) ? `<td>${esc(r.note)}</td>` : ''}</tr>`).join('')}
   </tbody></table>`, 'บันทึกการปล่อยผ่าน')}</section>`;
+}
+// เลือกหลายแถวแล้วพิมพ์ป้ายล็อตหรือส่งออกพร้อมกัน (ข้อ B6) ใช้กับการพิมพ์และส่งออกเท่านั้น ไม่ใช้กับปล่อยผ่านหรืออนุมัติ
+function bulkBar(id) {
+  return `<div class="bulkbar" data-bulk-bar="${id}" role="group" aria-label="ทำกับแถวที่เลือก"><span class="bk-n" aria-live="polite">เลือกแถวเพื่อพิมพ์ป้ายล็อตหรือส่งออกพร้อมกัน</span><span class="bk-acts"><button type="button" class="btn btn-sm" data-bulk-act="labels" disabled>${I.qr}พิมพ์ป้ายล็อต</button><button type="button" class="btn btn-sm" data-bulk-act="csv" disabled>${I.download}ส่งออก CSV</button><button type="button" class="btn btn-sm bk-clear" data-bulk-act="clear" disabled>ยกเลิกที่เลือก</button></span></div>`;
+}
+function bulkState(id) {
+  const tbl = $('#main').querySelector(`table[data-bulk="${id}"]`);
+  const cbs = tbl ? [...tbl.querySelectorAll('.bk-cb')] : [];
+  return { tbl, cbs, sel: [...new Set(cbs.filter((c) => c.checked).map((c) => c.value))] };
+}
+function updBulk(id) {
+  const { tbl, cbs, sel } = bulkState(id);
+  const bar = $('#main').querySelector(`[data-bulk-bar="${id}"]`);
+  if (!tbl || !bar) return;
+  const n = cbs.filter((c) => c.checked).length;
+  const all = tbl.querySelector('.bk-all');
+  all.checked = n > 0 && n === cbs.length;
+  all.indeterminate = n > 0 && n < cbs.length;
+  for (const c of cbs) c.closest('tr').classList.toggle('is-sel', c.checked);
+  bar.classList.toggle('is-on', n > 0);
+  bar.querySelector('.bk-n').innerHTML = n ? `<strong>เลือก ${n} รายการ</strong>${sel.length < n ? ` <span class="bk-sub">(${sel.length} ล็อต)</span>` : ''}` : 'เลือกแถวเพื่อพิมพ์ป้ายล็อตหรือส่งออกพร้อมกัน';
+  for (const b of bar.querySelectorAll('[data-bulk-act]')) b.disabled = !n;
+}
+function bulkChange(t) {
+  const tbl = t.closest('table[data-bulk]');
+  if (!tbl) return;
+  if (t.classList.contains('bk-all')) for (const c of tbl.querySelectorAll('.bk-cb')) c.checked = t.checked;
+  updBulk(tbl.dataset.bulk);
+}
+function bulkAct(b) {
+  const id = b.closest('[data-bulk-bar]').dataset.bulkBar;
+  const { cbs, sel } = bulkState(id);
+  const act = b.dataset.bulkAct;
+  if (act === 'clear') { for (const c of cbs) c.checked = false; updBulk(id); return cbs[0]?.focus(); }
+  if (!sel.length) return;
+  if (act === 'labels') return setHash('doc', { type: 'lot-label', lots: sel.join(',') });
+  if (act === 'csv') {
+    const rows = S.releases.filter((r) => sel.includes(r.lot_no)).map((r) => ({ ...r, item_name: S.items.get(r.item_code)?.name || '', checker: staff(r.checker_id).name, approver: staff(r.approver_id).name }));
+    download(`ปล่อยผ่าน-เลือก-${sel.length}-ล็อต-ข้อมูลจำลอง.csv`, toCSV(rows, ['date', 'lot_no', 'item_code', 'item_name', 'result', 'checker_id', 'checker', 'approver_id', 'approver', 'note']));
+    toast(`ส่งออก ${num(sel.length)} ล็อตเป็นไฟล์ CSV แล้ว`);
+  }
 }
 function qcRejected() {
   const lots = S.lots.filter((l) => l.status === 'ไม่ผ่าน').sort((a, b) => (b.release_date || '').localeCompare(a.release_date || '')).slice(0, 30);
@@ -687,7 +759,7 @@ function viewSales(p) {
     { k: 'ยอดขาย 12 เดือน', n: mill(ms.reduce((s, x) => s + x.total, 0)), u: 'ล้านบาท', d: `เดือนนี้ถึงวันนี้ ${mill(ms[ms.length - 1].total)} ล้าน` },
     { k: 'ลูกหนี้ค้างชำระ', n: mill(ar.total), u: 'ล้านบาท', d: `${S.invoices.filter((v) => !v.paid_date && v.date <= S.today).length} ใบ` },
     { k: 'เกินกำหนดชำระ', n: mill(ar.overdue), u: 'ล้านบาท', lv: ar.overdue ? 'crit' : '', d: `${D.overdue.length} ราย` },
-  ]) + alertsBlock(alerts, '', { fold: tab !== 'ar' }) + seg('sales', tabs, tab) + body;
+  ]) + alertsBlock(alerts, '', { fold: tab !== 'ar', snoozed: roomSnoozed('sales') }) + seg('sales', tabs, tab) + body;
 }
 function arTab(p, ar) {
   const cust = p.get('cust') || '';
@@ -988,7 +1060,7 @@ function keepOf(ev) {
 }
 
 // ================= ประวัติการแก้ไข: แก้ไขหรือลบได้ ต้องมีเหตุผล ฉบับเดิมยังอยู่ =================
-const KIND_TH = { receive: 'รับเข้า', issue: 'เบิกออก', job: 'เปิดงาน', qcResult: 'ผลตรวจ', release: 'ปล่อยผ่าน', stage: 'ย้ายงาน', payment: 'รับชำระ', pr: 'ใบขอซื้อ', prStep: 'ขั้นจัดซื้อ', master: 'ทะเบียน', formula: 'สูตร', maint: 'FM-08', note: 'บันทึกถึงฝ่าย', amend: 'แก้ไข', void: 'ลบ' };
+const KIND_TH = { receive: 'รับเข้า', issue: 'เบิกออก', job: 'เปิดงาน', qcResult: 'ผลตรวจ', release: 'ปล่อยผ่าน', stage: 'ย้ายงาน', payment: 'รับชำระ', pr: 'ใบขอซื้อ', prStep: 'ขั้นจัดซื้อ', master: 'ทะเบียน', formula: 'สูตร', maint: 'FM-08', note: 'บันทึกถึงฝ่าย', snooze: 'เลื่อนเตือน', amend: 'แก้ไข', void: 'ลบ' };
 const sameKey = (e) => JSON.stringify(e.effects?.prStep?.[0]?.pr_no || e.effects?.formula?.[0]?.item || (e.effects?.master || []).map((m) => `${m.table}:${m.key}`));
 function editInfo(ev) {
   const type = ev.type === 'amend' ? ev.of : ev.type;
@@ -997,6 +1069,7 @@ function editInfo(ev) {
   if (type === 'release') return { ok: false, why: 'การอนุมัติปล่อยผ่านแก้หรือลบไม่ได้ ถ้าผิดให้ทำรายงานความเบี่ยงเบน FM-51' };
   if (type === 'note') return { ok: false, why: 'เก็บเป็นหลักฐาน ลบหรือแก้ไม่ได้' };
   if (type === 'stage') return { ok: false, why: 'ย้อนงานด้วยปุ่มลูกศรบนบอร์ด' };
+  if (type === 'snooze') return { ok: false, why: 'ให้กลับมาเตือนได้ที่รายการเรื่องที่เลื่อนไว้ในห้อง' };
   if (['prStep', 'formula', 'master', 'maint'].includes(type)) {
     const k = sameKey(ev);
     const later = S.events.slice(S.events.indexOf(ev) + 1).find((f) => f.type !== 'void' && S.evState.get(f.id)?.status === 'active' && (f.type === ev.type || (type === 'prStep' && f.type === 'receive' && JSON.stringify(f.effects?.prStep?.[0]?.pr_no) === k)) && sameKey(f) === k);
@@ -1363,7 +1436,7 @@ function sortTables(root) {
     const key = `${page}|${tab}|${k}`;
     [...t.tHead.rows[0].cells].forEach((th, i) => {
       const label = th.textContent.trim();
-      if (!label || th.querySelector('.th-sort')) return;
+      if (!label || th.querySelector('.th-sort') || th.hasAttribute('data-nosort')) return;
       th.innerHTML = `<button type="button" class="th-sort" data-sort-col="${i}" aria-label="เรียงตาม${esc(label)}">${th.innerHTML}${I.sort}</button>`;
     });
     t.dataset.sortKey = key;
@@ -1500,6 +1573,7 @@ function route() {
   }
   lastId = id;
   snapForms();
+  updSaveBar();
 }
 nav.route = route;
 actions.submitNew = submitNew;
@@ -1579,6 +1653,27 @@ export function dirtyForm() {
   return null;
 }
 const pageOf = (h) => { const m = String(h || '').match(/^#\/([^?]*)\??(.*)$/); return m ? `${m[1]}|${new URLSearchParams(m[2]).get('tab') || ''}` : ''; };
+
+// ---------- เลื่อนเรื่องเตือนระดับเฝ้าระวังไปเตือนพรุ่งนี้ (ข้อ B5) ----------
+// บันทึกเป็นรายการในประวัติ (ใครเลื่อน เมื่อไร ถึงวันไหน) เรื่องวิกฤตเลื่อนไม่ได้ เลื่อนได้เฉพาะฝ่ายที่เป็นผู้ทำเรื่องนั้น
+function snoozeAlert(key) {
+  const a = D.alerts.find((x) => x.key === key);
+  if (!a) { toast('เรื่องนี้ไม่อยู่ในรายการแจ้งเตือนแล้ว', 'warn'); return route(); }
+  if (a.level === 'crit') return toast('เรื่องวิกฤตเลื่อนไม่ได้ ต้องจัดการวันนี้', 'warn');
+  if (!canAct(a)) return toast('เรื่องนี้ฝ่ายอื่นเป็นผู้ทำ เลื่อนเตือนได้เฉพาะฝ่ายที่ทำ', 'warn');
+  const until = addDays(S.today, 1);
+  commit({ type: 'snooze', summary: `เลื่อนเรื่องเตือน "${a.title}" ไปเตือนอีกครั้ง ${thaiDate(until)}`, effects: { snooze: [{ key, until }] } });
+  toast(`เลื่อนแล้ว จะเตือนอีกครั้ง ${thaiDate(until)}`);
+  route();
+}
+function unsnoozeAlert(key) {
+  const a = D.snoozed.find((x) => x.key === key);
+  if (!a) return route();
+  if (!canAct(a)) return toast('เรื่องนี้ฝ่ายอื่นเป็นผู้ทำ', 'warn');
+  commit({ type: 'snooze', summary: `ให้เรื่อง "${a.title}" กลับมาเตือนตอนนี้ (ยกเลิกการเลื่อน)`, effects: { snooze: [{ key, until: '' }] } });
+  toast('เรื่องนี้กลับมาเตือนแล้ว');
+  route();
+}
 
 // ---------- แถบเตือนที่เก็บข้อมูล ----------
 function sysAction(kind) {
@@ -1678,7 +1773,7 @@ function bind() {
   addEventListener('resize', () => { fitSegs(main); markSticky(main); fitTables(main); });
   // กันดับเบิลคลิกและกดรัว (QA-002 QA-037): ปุ่มที่บันทึกข้อมูล คลิกที่สองของดับเบิลคลิก หรือคลิกซ้ำภายใน 0.6 วินาที ไม่นับ
   // หลังคลิกแรก หน้าจอวาดใหม่และการ์ดหรือแถวถัดไปอาจเลื่อนมาอยู่ใต้เมาส์พอดี คลิกที่สองจึงไปโดนรายการอื่น (คลิกจากแป้นพิมพ์ไม่โดนกัน)
-  const COMMIT_ACTS = new Set(['move', 'release', 'pay', 'prStep', 'prReject', 'toggleActive', 'reset', 'become']);
+  const COMMIT_ACTS = new Set(['move', 'release', 'pay', 'prStep', 'prReject', 'toggleActive', 'reset', 'become', 'snooze', 'unsnooze']);
   let lastTap = -1e9;
   main.addEventListener('click', (e) => {
     if (e.target.closest('[data-back]') && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); return goBack(); }
@@ -1686,6 +1781,8 @@ function bind() {
     if (sys) return guard(() => sysAction(sys.dataset.sys));
     const sb = e.target.closest('.th-sort');
     if (sb) return sortClick(sb);
+    const bk = e.target.closest('[data-bulk-act]');
+    if (bk) return bk.disabled ? undefined : guard(() => bulkAct(bk));
     const b = e.target.closest('[data-act]');
     if (!b || b.tagName === 'SELECT' || b.tagName === 'INPUT' || b.disabled) return;
     const act = b.dataset.act;
@@ -1704,6 +1801,8 @@ function bind() {
     if (act === 'become') { setUser(b.dataset.user); navReset(); toast(`เปลี่ยนผู้ใช้เป็น ${short(currentUser().name)} ${currentUser().role}`); route(); }
     if (act === 'slipClose') { slipState.slip = null; route(); }
     if (act === 'share') shareLine(b.dataset.share || '');
+    if (act === 'snooze') snoozeAlert(b.dataset.key || '');
+    if (act === 'unsnooze') unsnoozeAlert(b.dataset.key || '');
     if (act === 'print') window.print();
     if (act === 'export') { download('lots-ข้อมูลจำลอง.csv', toCSV(S.lots, ['lot_no', 'item_code', 'qty_in', 'qty_left', 'date_in', 'exp_date', 'status', 'release_date', 'source', 'source_ref'])); download('moves-ข้อมูลจำลอง.csv', toCSV(S.moves, ['move_id', 'date', 'item_code', 'lot_no', 'type', 'qty', 'party', 'doc_no', 'user_id'])); }
     if (act === 'exportLog') download('ประวัติการแก้ไข-ข้อมูลจำลอง.csv', logCSV());
@@ -1711,6 +1810,7 @@ function bind() {
   }
   main.addEventListener('change', (e) => {
     const t = e.target;
+    if (t.matches?.('.bk-cb, .bk-all')) return bulkChange(t);
     const act = t.dataset.act;
     if (!act) return;
     if (HANDLERS.change[act]) return HANDLERS.change[act](t, e);
@@ -1787,7 +1887,7 @@ function bind() {
 // ท้ายหน้า: ชื่อระบบ เวอร์ชัน และผู้พัฒนา อ่านจากไฟล์ที่โหลดอยู่จริง ถ้าเห็นเลขเก่าแปลว่าเบราว์เซอร์ยังจำไฟล์รุ่นเก่า
 function renderFootId() {
   const d = new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${APP.updated}T00:00:00`));
-  $('.foot')?.insertAdjacentHTML('afterbegin', `<p class="foot-id"><strong>${esc(APP.name)} (ต้นแบบ)</strong><span title="รุ่นไฟล์ ${esc(APP_BUILD)}">เวอร์ชัน ${esc(APP.version)} ปรับปรุง ${esc(d)}</span><span>พัฒนาโดย ${esc(APP.developer)}</span></p>`);
+  $('.foot')?.insertAdjacentHTML('afterbegin', `<p class="foot-id"><strong>${esc(APP.name)} (ต้นแบบ)</strong><span title="รุ่นไฟล์ ${esc(APP_BUILD)}">เวอร์ชัน ${esc(APP.version)} ปรับปรุง ${esc(d)}</span><span>พัฒนาโดย ${esc(APP.developer)}</span><button type="button" class="foot-keys" data-keys-open>คีย์ลัด <kbd>?</kbd></button></p>`);
 }
 async function start() {
   renderFootId();
@@ -1799,6 +1899,7 @@ async function start() {
   }
   bind();
   initPalette();
+  initQuick({ dirtyForm, rerender: () => route() });
   route();
 }
 start();
