@@ -37,8 +37,9 @@ export function parseCSV(text) {
   const [head, ...body] = rows;
   return body.filter((r) => r.length > 1 || r[0] !== '').map((r) => Object.fromEntries(head.map((h, i) => [h, r[i] ?? ''])));
 }
+// ช่องข้อความที่ขึ้นต้นด้วย = + - @ ใส่ ' นำหน้า กัน Excel ตีความเป็นสูตร (QA-020 OWASP CSV Injection)
 export function toCSV(rows, cols) {
-  const esc = (v) => { const s = v === null || v === undefined ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const esc = (v) => { let s = v === null || v === undefined ? '' : String(v); if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`; return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   return '﻿' + [cols.join(','), ...rows.map((r) => cols.map((c) => esc(r[c])).join(','))].join('\n') + '\n';
 }
 export function localISO(d = new Date()) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
@@ -279,6 +280,17 @@ function rebuild(exclude = null) {
   S.stageOverride = new Map();
   S.lotMap = new Map(S.lots.map((l) => [l.lot_no, l]));
   S.evState = eventStates(S.events);
+  // เลขที่ที่เคยออกในเว็บ รวมรายการที่ลบหรือแก้ไปแล้ว เลขที่ยกเลิกไม่นำกลับมาใช้ (QA-019)
+  S.used = { lot: [], po: [], job: [], inv: [], pr: [] };
+  for (const ev of S.events) {
+    const fx = ev.effects || {};
+    for (const l of fx.lots || []) S.used.lot.push(l.lot_no);
+    for (const x of fx.newPo || []) S.used.po.push(x.po_no);
+    for (const j of fx.newJobs || []) S.used.job.push(j.job_id);
+    for (const v of fx.invoices || []) S.used.inv.push(v.inv_no);
+    for (const r of fx.newPr || []) S.used.pr.push(r.pr_no);
+    for (const r of fx.prStep || []) if (r.patch?.po_no) S.used.po.push(r.patch.po_no);
+  }
   for (const ev of S.events) {
     if (ev.type === 'void' || (exclude && exclude.has(ev.id)) || S.evState.get(ev.id).status !== 'active') continue;
     apply(ev.effects || {}, ev);
@@ -316,13 +328,29 @@ function apply(fx, ev) {
   for (const s of fx.status || []) { const l = S.lotMap.get(s.lot_no); if (l) Object.assign(l, s); }
   for (const r of fx.releases || []) S.releases.push(r);
   for (const r of fx.qcResults || []) S.qcResults.set(r.lot_no, r);
-  for (const p of fx.po || []) { const po = S.pos.find((x) => x.po_no === p.po_no); if (po) Object.assign(po, p); }
+  for (const p of fx.po || []) {
+    const po = S.pos.find((x) => x.po_no === p.po_no);
+    if (!po) continue;
+    if (p.recv === undefined) { Object.assign(po, p); continue; } // รายการแบบเดิม: รับครั้งเดียวปิดใบ
+    // รับบางส่วนได้ ใบสั่งซื้อค้างยอดที่เหลือจนรับครบหรือผู้ใช้สั่งปิด (QA-011)
+    po.received_qty = round(po.item_code, (po.received_qty || 0) + p.recv);
+    po.lots = [...(po.lots || []), p.lot_no];
+    if (p.close) { po.received_date = p.date; po.lot_no = p.lot_no; }
+  }
   for (const j of fx.jobs || []) { const job = S.jobs.find((x) => x.job_id === j.job_id); if (job) Object.assign(job, j.patch); }
   for (const x of fx.inputs || []) S.jobInputs.push(x);
   for (const s of fx.stage || []) S.stageOverride.set(s.job_id, s.stage);
   for (const v of fx.invoices || []) S.invoices.push({ ...v });
   for (const l of fx.invoiceLines || []) S.invoiceLines.push(l);
-  for (const p of fx.paid || []) { const v = S.invoices.find((x) => x.inv_no === p.inv_no); if (v) v.paid_date = p.paid_date; }
+  for (const p of fx.paid || []) {
+    const v = S.invoices.find((x) => x.inv_no === p.inv_no);
+    if (!v) continue;
+    if (p.amount === undefined) { v.paid_amount = v.total; v.paid_date = p.paid_date; continue; } // รายการแบบเดิม: รับเต็มจำนวน
+    // รับชำระบางส่วนได้ เก็บจำนวนเงิน วันที่รับ และเลขใบเสร็จทุกครั้ง (QA-034)
+    v.paid_amount = Math.round(((v.paid_amount || 0) + p.amount) * 100) / 100;
+    v.payments = [...(v.payments || []), { amount: p.amount, date: p.date, receipt: p.receipt, ev: ev.id }];
+    if (v.paid_amount >= v.total - 0.005) v.paid_date = p.date;
+  }
   for (const r of fx.prStep || []) { const pr = S.prs.find((x) => x.pr_no === r.pr_no); if (pr) Object.assign(pr, r.patch); }
   for (const m of fx.maint || []) S.maint.push({ ...m });
   for (const n of fx.notes || []) S.notes.push({ ...n, at: ev.at, from: ev.user, ev: ev.id });
@@ -330,6 +358,11 @@ function apply(fx, ev) {
 }
 
 export function round(code, q) { const it = S.items.get(code); return it && UNIT_INT.has(it.unit) ? Math.round(q) : Math.round(q * 100) / 100; }
+// ใบส่งของ: รับชำระแล้วเท่าไร ค้างเท่าไร (ใบเก่าในข้อมูลตั้งต้นมีแค่วันที่ชำระ = ชำระเต็มจำนวน)
+export const paidOf = (v) => v.paid_amount ?? (v.paid_date ? v.total : 0);
+export const owedOf = (v) => Math.max(0, Math.round((v.total - paidOf(v)) * 100) / 100);
+// ใบสั่งซื้อ: ค้างรับอีกเท่าไร
+export const poLeft = (po) => Math.max(0, round(po.item_code, po.qty - (po.received_qty || 0)));
 export const usable = (l) => l.status === 'ตรวจสอบแล้ว' && l.qty_left > 1e-9 && (!l.exp_date || l.exp_date > S.today);
 export const isFG = (it) => !!it && (it.kind === 'ยารับประทาน' || it.kind === 'ยาใช้ภายนอก');
 export const bomOf = (code) => S.bom.filter((r) => r.out_item === code);
@@ -370,21 +403,22 @@ export function costOf(code, rows = null, opt = {}) {
 // เลขที่ผลิตและเลขรับ ตาม SOP-PD-07
 export function nextLotNo(code, date = S.today) {
   const fy = fy2(date);
+  const all = S.lots.map((l) => l.lot_no).concat(S.used?.lot || []);
   if (code.startsWith('9')) {
-    const n = S.lots.filter((l) => l.lot_no.startsWith(`R${fy}-`)).map((l) => Number(l.lot_no.slice(4))).reduce((a, b) => Math.max(a, b), 0);
+    const n = all.filter((x) => x.startsWith(`R${fy}-`)).map((x) => Number(x.slice(4))).reduce((a, b) => Math.max(a, b), 0);
     return `R${fy}-${String(n + 1).padStart(4, '0')}`;
   }
-  const n = S.lots.filter((l) => l.item_code === code && l.lot_no.startsWith(`${code}${fy}`)).map((l) => Number(l.lot_no.slice(6))).reduce((a, b) => Math.max(a, b), 0);
+  const n = all.filter((x) => x.length === 8 && x.startsWith(`${code}${fy}`)).map((x) => Number(x.slice(6))).reduce((a, b) => Math.max(a, b), 0);
   return `${code}${fy}${String(n + 1).padStart(2, '0')}`;
 }
 function nextSeq(list, prefix, width) {
   const n = list.filter((x) => x.startsWith(prefix)).map((x) => Number(x.slice(prefix.length))).filter(Number.isFinite).reduce((a, b) => Math.max(a, b), 0);
   return `${prefix}${String(n + 1).padStart(width, '0')}`;
 }
-export const nextPoNo = () => nextSeq(S.pos.map((p) => p.po_no), `PO${fy2(S.today)}-`, 3);
-export const nextJobId = () => nextSeq(S.jobs.map((j) => j.job_id), `J${fy2(S.today)}-`, 3);
-export const nextInvNo = () => nextSeq(S.invoices.map((v) => v.inv_no), `IV${fy2(S.today)}-`, 4);
-export const nextPrNo = () => nextSeq(S.prs.map((r) => r.pr_no), `ขซ${fy2(S.today)}-`, 3);
+export const nextPoNo = () => nextSeq(S.pos.map((p) => p.po_no).concat(S.used.po), `PO${fy2(S.today)}-`, 3);
+export const nextJobId = () => nextSeq(S.jobs.map((j) => j.job_id).concat(S.used.job), `J${fy2(S.today)}-`, 3);
+export const nextInvNo = () => nextSeq(S.invoices.map((v) => v.inv_no).concat(S.used.inv), `IV${fy2(S.today)}-`, 4);
+export const nextPrNo = () => nextSeq(S.prs.map((r) => r.pr_no).concat(S.used.pr), `ขซ${fy2(S.today)}-`, 3);
 export const nextAssetId = () => nextSeq(S.base.assets.map((a) => a.asset_id), 'EQ-', 2);
 let moveSeq = 0;
 export function newMove(o) { moveSeq += 1; return { move_id: `W${Date.now().toString(36)}${moveSeq}`, date: S.today, user_id: S.user, ...o }; }
@@ -481,22 +515,35 @@ function compute() {
   const today = S.today;
   D.itemStats = new Map();
   D.expiries = [];
+  // วัตถุดิบที่งานเปิดแล้วต้องใช้แต่ยังไม่ได้เบิก (งานรอเบิก) นับเป็นของที่ถูกจองไว้ (QA-031)
+  const reservedBy = new Map(), reservedJobs = new Map();
+  for (const j of S.jobs) {
+    if (j.status !== 'waiting') continue;
+    for (const b of bomOf(j.item_code)) {
+      reservedBy.set(b.in_item, (reservedBy.get(b.in_item) || 0) + b.qty_per_unit * j.qty);
+      if (!reservedJobs.has(b.in_item)) reservedJobs.set(b.in_item, []);
+      reservedJobs.get(b.in_item).push(j);
+    }
+  }
   for (const it of S.items.values()) {
     if (it.make === 'farm') continue;
     const ls = S.lotsByItem.get(it.code) || [];
     const released = ls.filter(usable).reduce((s, l) => s + l.qty_left, 0);
     const quarantine = ls.filter((l) => l.status === 'รอปล่อยผ่าน').reduce((s, l) => s + l.qty_left, 0);
     const rejected = ls.filter((l) => l.status === 'ไม่ผ่าน' && l.qty_left > 0).reduce((s, l) => s + l.qty_left, 0);
+    const reserved = round(it.code, reservedBy.get(it.code) || 0);
     const u = usageStats(it.code);
     const lt = leadStats(it);
     const pol = policy({ d: u.mean, sd: u.sd, L: lt.L, sL: lt.sL, csl: it.csl || CONFIG.cslOther, R: CONFIG.reviewDays });
     const openPOs = S.pos.filter((p) => p.item_code === it.code && !p.received_date && p.lot_no !== 'ก่อนเริ่มระบบ');
     const activeJobs = S.jobs.filter((j) => j.item_code === it.code && (j.status === 'waiting' || j.status === 'running'));
-    const onOrder = openPOs.reduce((s, p) => s + p.qty, 0) + activeJobs.reduce((s, j) => s + j.qty, 0);
-    const position = released + quarantine + onOrder;
-    const cover = u.mean > 0 ? (released + quarantine) / u.mean : Infinity;
+    const onOrder = openPOs.reduce((s, p) => s + poLeft(p), 0) + activeJobs.reduce((s, j) => s + j.qty, 0);
+    // ของที่ใช้ได้จริง = ตรวจสอบแล้ว + รอปล่อยผ่าน + ค้างรับ ค้างผลิต หักของที่งานเปิดแล้วจองไว้
+    const position = released + quarantine + onOrder - reserved;
+    const cover = u.mean > 0 ? Math.max(0, released + quarantine - reserved) / u.mean : Infinity;
     const stockoutDate = Number.isFinite(cover) ? addDays(today, Math.floor(cover)) : null;
     const target = it.csl || CONFIG.cslOther;
+    const shortJobs = reserved > released + quarantine + 1e-9 ? round(it.code, reserved - released - quarantine) : 0;
     const poViews = openPOs.map((p) => {
       const sl = supplierLead(p.supplier_id, it.code);
       const expected = addDays(p.order_date, Math.round(sl.L));
@@ -504,12 +551,12 @@ function compute() {
       return { po: p, sl, expected, prob, verdict: onTimeVerdict(prob, target), lateDays: stockoutDate ? daysBetween(stockoutDate, expected) : 0 };
     });
     let level = 'ok';
-    if (u.mean > 0 && released <= pol.ss) level = 'crit';
+    if ((u.mean > 0 || reserved > 0) && released - reserved <= pol.ss) level = 'crit';
     if (poViews.some((v) => v.verdict.level === 'crit')) level = 'crit';
     if (level === 'ok' && (position <= pol.rop || poViews.some((v) => v.verdict.level === 'warn'))) level = 'warn';
     const pack = it.batch_or_pack || 1;
-    const suggestQty = position <= pol.rop ? Math.max(pack, Math.ceil((pol.S - position) / pack) * pack) : 0;
-    D.itemStats.set(it.code, { it, released, quarantine, rejected, u, lt, pol, openPOs, poViews, activeJobs, onOrder, position, cover, stockoutDate, level, suggestQty, target });
+    const suggestQty = position <= pol.rop + 1e-9 && (u.mean > 0 || reserved > 0) ? Math.max(pack, Math.ceil((pol.S - position) / pack) * pack) : 0;
+    D.itemStats.set(it.code, { it, released, quarantine, rejected, reserved, reservedJobs: reservedJobs.get(it.code) || [], shortJobs, u, lt, pol, openPOs, poViews, activeJobs, onOrder, position, cover, stockoutDate, level, suggestQty, target });
     for (const l of ls) {
       if (l.status !== 'ตรวจสอบแล้ว' || l.qty_left <= 0 || !l.exp_date) continue;
       const left = daysBetween(today, l.exp_date);
@@ -523,12 +570,14 @@ function compute() {
     .map((l) => ({ lot: l, it: S.items.get(l.item_code), waiting: daysBetween(l.date_in, today), job: S.jobs.find((j) => j.out_lot === l.lot_no), result: S.qcResults.get(l.lot_no) || null }))
     .sort((a, b) => b.waiting - a.waiting);
 
+  // งานรอเบิก: คิดทุกครั้งว่าวัตถุดิบตามสูตรพอไหม ไม่พอ = หยุดรอของ (QA-032 งานที่เปิดในเว็บก็ขึ้นเตือน)
   D.board = S.jobs.filter((j) => j.status !== 'done' || (j.release_date && daysBetween(j.release_date, today) <= CONFIG.boardDoneDays))
     .map((j) => {
       const stage = stageOf(j);
       const it = S.items.get(j.item_code);
       const since = stage === 'รอปล่อยผ่าน' ? (j.end_date || j.created_date) : stage === 'ตรวจสอบแล้ว' ? j.release_date : (j.start_date || j.created_date);
-      return { job: j, it, stage, owner: staff(STAGE_OWNER[stage]), days: since ? Math.max(0, daysBetween(since, today)) : 0, blocked: j.status === 'waiting' && j.wait_reason ? j.wait_reason : '' };
+      const lack = j.status === 'waiting' ? bomNeeds(j.item_code, j.qty).find((n) => !n.ok) : null;
+      return { job: j, it, stage, owner: staff(STAGE_OWNER[stage]), days: since ? Math.max(0, daysBetween(since, today)) : 0, blocked: lack ? S.items.get(lack.code)?.name || lack.code : '', lack };
     });
 
   // ลูกหนี้เกินกำหนดชำระ รายลูกค้า
@@ -536,7 +585,7 @@ function compute() {
   for (const v of S.invoices) {
     if (v.paid_date || v.due_date >= today || v.date > today) continue;
     const x = byCust.get(v.customer_id) || { customer: S.base.customers.find((c) => c.customer_id === v.customer_id), amount: 0, count: 0, oldest: null };
-    x.amount += v.total; x.count += 1;
+    x.amount += owedOf(v); x.count += 1;
     if (!x.oldest || v.due_date < x.oldest.due_date) x.oldest = v;
     byCust.set(v.customer_id, x);
   }
@@ -590,18 +639,21 @@ function buildAlerts() {
         actionText, go, timeline: { order: v.po.order_date, stockout: st.stockoutDate, expected: v.expected }, sort: v.prob,
       });
     }
-    if (st.poViews.length === 0 && st.u.mean > 0 && st.position <= st.pol.rop) {
+    if (st.poViews.length === 0 && (st.u.mean > 0 || st.reserved > 0) && st.position <= st.pol.rop + 1e-9 && st.suggestQty > 0) {
       const make = it.make !== 'buy';
-      const level = st.released <= st.pol.ss ? 'crit' : 'warn';
+      const level = st.released - st.reserved <= st.pol.ss ? 'crit' : 'warn';
+      // งานที่เปิดแล้วต้องใช้มากกว่าของที่มี บอกตรงๆ ว่ากี่งานรอ ขาดเท่าไร (QA-031)
+      const forJobs = st.shortJobs > 0;
+      const jobFields = [['งานที่รอใช้', `${st.reservedJobs.length} งาน`], ['งานต้องใช้', fmtQ(it.code, st.reserved)], ['ตรวจสอบแล้ว', fmtQ(it.code, st.released)], ['ขาดอีก', fmtQ(it.code, st.shortJobs)]];
       if (make) {
         const room = laneRoom(it.lane);
         A.push({
-          level, kind: 'reorder', item: it.code, rooms: isFG(it) ? [room, 'sales'] : [room],
-          title: `${it.name} ${days <= 0 ? 'หมดวันนี้' : `พอจ่ายอีก ${days} วัน`}`,
-          stamp: 'ต้องผลิตเพิ่ม',
-          stub: { k: 'พอใช้อีก', n: String(days), u: 'วัน', ref: it.code },
-          fields: [['ตรวจสอบแล้ว', fmtQ(it.code, st.released)], ['ใช้ต่อวัน', fmtQ(it.code, st.u.mean)], ['จำนวนอย่างต่ำ', fmtQ(it.code, st.pol.rop)], ['งานค้าง', `${st.activeJobs.length} งาน`]],
-          detail: `คงคลังตรวจสอบแล้ว ${fmtQ(it.code, st.released)} จำนวนอย่างต่ำ ${fmtQ(it.code, st.pol.rop)}`,
+          level: forJobs ? 'crit' : level, kind: 'reorder', item: it.code, rooms: isFG(it) ? [room, 'sales'] : [room],
+          title: forJobs ? `${it.name} ไม่พองานที่เปิดแล้ว ขาด ${fmtQ(it.code, st.shortJobs)}` : `${it.name} ${days <= 0 ? 'หมดวันนี้' : `พอจ่ายอีก ${days} วัน`}`,
+          stamp: forJobs ? 'ของไม่พองาน' : 'ต้องผลิตเพิ่ม',
+          stub: forJobs ? { k: 'งานรอของ', n: String(st.reservedJobs.length), u: 'งาน', ref: it.code } : { k: 'พอใช้อีก', n: String(days), u: 'วัน', ref: it.code },
+          fields: forJobs ? jobFields : [['ตรวจสอบแล้ว', fmtQ(it.code, st.released)], ['ใช้ต่อวัน', fmtQ(it.code, st.u.mean)], ['จำนวนอย่างต่ำ', fmtQ(it.code, st.pol.rop)], ['งานค้าง', `${st.activeJobs.length} งาน`]],
+          detail: forJobs ? `งานที่เปิดแล้ว ${st.reservedJobs.length} งานต้องใช้ ${fmtQ(it.code, st.reserved)} มีตรวจสอบแล้ว ${fmtQ(it.code, st.released)}` : `คงคลังตรวจสอบแล้ว ${fmtQ(it.code, st.released)} จำนวนอย่างต่ำ ${fmtQ(it.code, st.pol.rop)}`,
           actionText: `เปิดงาน${it.lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป'} ${fmtQ(it.code, st.suggestQty)}`,
           go: `${room}?tab=new&item=${it.code}&qty=${st.suggestQty}`, sort: st.cover / 100,
         });
@@ -609,11 +661,11 @@ function buildAlerts() {
         const sup = S.base.suppliers.find((s) => s.supplier_id === it.supplier_id);
         if (S.prs.some((r) => r.item_code === it.code && !r.ordered && !r.rejected)) continue;
         A.push({
-          level, kind: 'reorder', item: it.code, rooms: ['store'],
-          title: `${it.name} ถึงจำนวนอย่างต่ำแล้ว`,
-          stamp: level === 'crit' ? 'ของจะขาด' : 'ถึงจุดสั่งซื้อ',
+          level: forJobs ? 'crit' : level, kind: 'reorder', item: it.code, rooms: ['store'],
+          title: forJobs ? `${it.name} ไม่พองานที่เปิดแล้ว ขาด ${fmtQ(it.code, st.shortJobs)}` : `${it.name} ถึงจำนวนอย่างต่ำแล้ว`,
+          stamp: forJobs ? 'ของไม่พองาน' : level === 'crit' ? 'ของจะขาด' : 'ถึงจุดสั่งซื้อ',
           stub: { k: 'คงคลัง', n: Math.round(st.released).toLocaleString('th-TH'), u: it.unit, ref: it.code },
-          fields: [['จำนวนอย่างต่ำ', fmtQ(it.code, st.pol.rop)], ['แนะนำสั่ง', fmtQ(it.code, st.suggestQty)], ['ผู้ขาย', sup ? sup.name : '-'], ['ส่งเฉลี่ย', `${Math.round(st.lt.L)} วัน`]],
+          fields: forJobs ? jobFields : [['จำนวนอย่างต่ำ', fmtQ(it.code, st.pol.rop)], ['แนะนำสั่ง', fmtQ(it.code, st.suggestQty)], ['ผู้ขาย', sup ? sup.name : '-'], ['ส่งเฉลี่ย', `${Math.round(st.lt.L)} วัน`]],
           detail: `คงคลังตรวจสอบแล้ว ${fmtQ(it.code, st.released)} จำนวนอย่างต่ำ ${fmtQ(it.code, st.pol.rop)} แนะนำสั่ง ${fmtQ(it.code, st.suggestQty)}`,
           actionText: `เขียนใบขอซื้อ ${fmtQ(it.code, st.suggestQty)}`,
           go: `store?tab=buy&new=1&item=${it.code}&qty=${st.suggestQty}`, sort: st.cover / 100,
@@ -650,16 +702,17 @@ function buildAlerts() {
   }
   for (const c of D.board) {
     if (!c.blocked) continue;
-    const mat = [...S.items.values()].find((x) => x.name === c.blocked);
+    const mat = c.lack ? S.items.get(c.lack.code) : null;
     const ms = mat && D.itemStats.get(mat.code);
     const next = ms && ms.poViews.slice().sort((a, b) => a.expected.localeCompare(b.expected))[0];
+    const making = ms && !next ? ms.activeJobs.find((j) => j.status !== 'waiting') || ms.activeJobs[0] : null;
     const room = laneRoom(c.job.lane);
     A.push({
       level: 'crit', kind: 'blocked', item: c.it.code, job: c.job.job_id, rooms: [room],
       title: `${c.it.name} หยุดรอ${c.blocked}`,
       stamp: 'หยุดรอของ',
       stub: { k: 'หยุดมาแล้ว', n: String(c.days), u: 'วัน', ref: c.job.job_id },
-      fields: [['รอ', c.blocked], ['ของจะมา', next ? `${thaiDate(next.expected)} ${next.po.po_no}` : 'ยังไม่มีใบสั่งซื้อ'], ['จำนวนผลิต', fmtQ(c.it.code, c.job.qty)], ['ผู้ถืองาน', c.owner.name.replace(' (สมมุติ)', '')]],
+      fields: [['รอ', c.lack ? `${c.blocked} ขาด ${fmtQ(c.lack.code, c.lack.need - c.lack.have)}` : c.blocked], ['ของจะมา', next ? `${thaiDate(next.expected)} ${next.po.po_no}` : making ? `งาน ${making.job_id} กำลัง${making.lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป'}` : mat && mat.make === 'make' ? 'ยังไม่มีงานแปรรูป' : 'ยังไม่มีใบสั่งซื้อ'], ['จำนวนผลิต', fmtQ(c.it.code, c.job.qty)], ['ผู้ถืองาน', c.owner.name.replace(' (สมมุติ)', '')]],
       detail: 'วัตถุดิบไม่พอเบิกตามสูตร จึงยังเริ่มผลิตไม่ได้',
       actionText: 'ดูงานบนบอร์ด', go: `${room}?tab=board&job=${encodeURIComponent(c.job.job_id)}`, sort: 0.001,
     });

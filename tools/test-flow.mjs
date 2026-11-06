@@ -125,9 +125,15 @@ await go(`job?id=${cardJob}`);
 check('เจ้าหน้าที่ฝ่ายขายเปิดหน้ารายละเอียดงานผลิตไม่ได้ เห็นป้ายไม่มีสิทธิ์', (await count('.locked')) === 1);
 
 // 4 งานทั้งสาย: รับหลอดตามใบสั่งซื้อ บันทึกผล ปล่อยผ่าน แล้วงานครีมที่หยุดเดินต่อ
+// (รอบแก้ QA) จำงานที่หยุดรอหลอดไว้ก่อน เพราะสถานะหยุดรอของคิดจากของในคลังจริง พอหลอดปล่อยผ่านแล้วป้ายหยุดจะหายเอง
+await setUser('U03');
+await go('prod');
+const blockedJob = await ev(`(() => { const c = [...document.querySelectorAll('.kcard')].find((x) => (x.querySelector('.k-block')?.textContent || '').includes('หลอด')); return c ? c.dataset.job : ''; })()`);
 await setUser('U01');
 await go('store?tab=receive&item=91004');
 const po = await ev(`document.querySelector('[name="po"]').value`);
+// (รอบแก้ QA) ช่องจำนวนว่างไว้ให้นับจริง ไม่เติมจากใบสั่งซื้อ
+await ev(`(async () => { const { S } = await import('./assets/data.js'); const p = S.pos.find((x) => x.po_no === '${po}'); document.querySelector('[data-form="receive"] [name="qty"]').value = String(p.qty); return true; })()`);
 await ev(`document.querySelector('[data-form="receive"]').requestSubmit(); true`);
 await sleep(500);
 const newLot = await text('.slip .slip-no');
@@ -147,7 +153,6 @@ await sleep(400);
 check('หัวหน้าฝ่ายควบคุมคุณภาพปล่อยผ่านหลังเจ้าหน้าที่บันทึกผล ถามยืนยันพร้อมเลขที่ก่อน ตราตรวจสอบแล้วประทับลงสำเนา', dlg && (await text('.slip .stamp')) === 'ตรวจสอบแล้ว' && (await count(`[data-act="release"][data-lot="${newLot}"]`)) === 0);
 await setUser('U03');
 await go('prod');
-const blockedJob = await ev(`(() => { const c = [...document.querySelectorAll('.kcard')].find((x) => (x.querySelector('.k-block')?.textContent || '').includes('หลอด')); return c ? c.dataset.job : ''; })()`);
 await ev(`document.querySelector('[data-act="move"][data-job="${blockedJob}"][data-dir="1"]').click(); true`);
 await sleep(500);
 const stageNow = await ev(`(() => { const c = document.querySelector('.kcard[data-job="${blockedJob}"]'); return c ? c.closest('[data-drop]').dataset.drop : ''; })()`);

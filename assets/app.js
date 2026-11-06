@@ -3,11 +3,11 @@ import { CONFIG, LANES, CAN, REQ_FORM, ROOMS, TOOLS, STAGE_OWNER, canEnter, home
 import {
   S, D, loadAll, commit, resetEvents, staff, currentUser, setUser, usable, isFG, isIntUnit, round, nextLotNo, nextJobId, nextInvNo,
   newMove, thaiDate, thaiFullDate, daysBetween, addDays, toCSV, roomAlerts, bomOf, bomNeeds, active, producing, eventById, blockers, withoutEvent, unreadNotes,
-  onExternalChange, repairStore, eventsJSON,
+  onExternalChange, repairStore, eventsJSON, owedOf, paidOf, poLeft,
 } from './data.js';
 import { fefoPick } from './logic.js';
 import {
-  $, esc, num, qn, qty, qh, money, mill, short, I, svg, chip, lotChip, stamp, tableWrap, supName, custName, who, deptLegend,
+  $, esc, num, qn, qty, qh, money, baht, mill, short, I, svg, chip, lotChip, stamp, tableWrap, supName, custName, who, deptLegend,
   toast, download, can, deny, roleNote, nav, setHash, slipState, showSlip, slipBlock, head, alertsBlock, seg, itemPicker, codeOf, monthLabel, actions, itemLink, jobLink, jobHref,
   openDialog, closeDialog, storeBanner,
 } from './ui.js';
@@ -32,10 +32,11 @@ function arAging() {
   let overdue = 0, total = 0;
   for (const v of S.invoices) {
     if (v.paid_date || v.date > S.today) continue;
+    const owed = owedOf(v);
     const age = daysBetween(v.date, S.today);
-    b[age <= 30 ? 0 : age <= 60 ? 1 : age <= 90 ? 2 : 3] += v.total;
-    total += v.total;
-    if (v.due_date < S.today) overdue += v.total;
+    b[age <= 30 ? 0 : age <= 60 ? 1 : age <= 90 ? 2 : 3] += owed;
+    total += owed;
+    if (v.due_date < S.today) overdue += owed;
   }
   return { b, total, overdue };
 }
@@ -328,7 +329,7 @@ function jobForm(room, p) {
     ${roleNote(key, 'เปิดงาน')}${askedNote(p, code, 'job')}
     <form data-form="job" data-room="${room.id}" class="form-grid">
       ${itemPicker({ name: 'item', items, value: code, act: 'jobItem', label: `รายการที่จะ${lane === 'ผลิต' ? 'ผลิต' : 'แปรรูป'}`, id: room.id })}
-      <label class="f">จำนวน (${esc(it.unit)}) รุ่นละ ${esc(qty(code, it.batch_or_pack || 0))}<input class="in" name="qty" type="number" min="1" step="any" required value="${q}" data-act="jobQty"></label>
+      <label class="f">จำนวน (${esc(it.unit)}) รุ่นละ ${esc(qty(code, it.batch_or_pack || 0))}<input class="in" name="qty" type="number" ${qtyAttrs(it)} required value="${q}" data-act="jobQty"></label>
       <div class="form-note">พอใช้อีก ${Number.isFinite(st.cover) ? `${num(Math.floor(st.cover))} วัน` : 'ไม่มีการเบิก'} จำนวนอย่างต่ำ ${esc(qty(code, st.pol.rop))} แนะนำ ${st.suggestQty ? esc(qty(code, st.suggestQty)) : 'ยังไม่ถึงจุดที่ต้องเพิ่ม'} งานจะเริ่มที่ขั้น "${esc(first)}" <a href="#/product?code=${code}">ดูสูตรและต้นทุน</a>
         ${tableWrap(`<table style="margin-top:8px"><thead><tr><th>วัตถุดิบตามสูตร</th><th class="r">ต้องใช้</th><th class="r">ตรวจสอบแล้วในคลัง</th><th>พอไหม</th></tr></thead><tbody>${needs.map((n) => `<tr><td>${itemLink(n.code)}</td><td class="r">${qh(n.code, n.need)}</td><td class="r">${qh(n.code, n.have)}</td><td>${n.ok ? chip('พอ', 'ok') : chip('ไม่พอ', 'crit')}</td></tr>`).join('')}</tbody></table>`, 'วัตถุดิบตามสูตร')}
       </div>
@@ -414,7 +415,7 @@ function storeStock(p) {
       <button type="button" class="btn btn-sm" data-act="export">${I.download}ส่งออก CSV</button></div>
     ${tableWrap(`<table><thead><tr><th>รหัส</th><th>รายการ</th><th class="r">ตรวจสอบแล้ว</th><th class="r">ใช้ต่อวัน</th><th class="r">พอใช้</th><th class="r">จำนวนอย่างต่ำ</th><th class="r">ค้างรับ ค้างผลิต</th><th>สถานะ</th></tr></thead><tbody>
     ${shown.map(({ s, stt }) => `<tr><td class="code">${s.it.code}</td><td>${itemLink(s.it)}${s.quarantine ? `<span class="sub-l">รอปล่อยผ่าน ${esc(qty(s.it.code, s.quarantine))}</span>` : ''}</td>
-      <td class="r">${qh(s.it.code, s.released)}</td><td class="r"><span class="num">${num(s.u.mean, 1)}</span></td><td class="r">${Number.isFinite(s.cover) ? `<span class="num">${num(Math.floor(s.cover))}</span><span class="u">วัน</span>` : '<span class="muted">-</span>'}</td>
+      <td class="r">${qh(s.it.code, s.released)}${s.reserved ? `<span class="sub-l">จองให้งาน ${esc(qty(s.it.code, s.reserved))}</span>` : ''}</td><td class="r"><span class="num">${num(s.u.mean, 1)}</span></td><td class="r">${Number.isFinite(s.cover) ? `<span class="num">${num(Math.floor(s.cover))}</span><span class="u">วัน</span>` : '<span class="muted">-</span>'}</td>
       <td class="r"><span class="num">${num(s.pol.rop)}</span></td><td class="r">${s.onOrder ? `<span class="num">${num(s.onOrder)}</span>` : '<span class="muted">-</span>'}</td><td>${chip(stt.t, stt.lv)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">ไม่พบรายการตามที่กรอง ลองล้างตัวกรอง</td></tr>'}
     </tbody></table>`, 'คงคลังของฝ่าย')}
     ${rows.length > shown.length ? `<a class="more-link" href="${link({ all: '1' })}">แสดงทั้งหมด ${rows.length} รายการ</a>` : ''}
@@ -485,11 +486,12 @@ function receiveForm(p) {
     ${blockedSup ? `<p class="form-note tx-warn">ผู้ขายประจำ ${esc(blockedSup.name)} ยังไม่ผ่านการคัดเลือกหรือเลิกใช้ในทะเบียน FM-46 จึงไม่อยู่ในรายการ</p>` : ''}
     <form data-form="receive" class="form-grid">
       ${itemPicker({ name: 'item', items: buyables, value: code, act: 'recvItem', label: 'รายการ', id: 'recv' })}
-      <label class="f">อ้างใบสั่งซื้อ<select class="in" name="po"><option value="">ไม่อ้าง</option>${openPOs.map((x) => `<option value="${x.po_no}" ${x.po_no === poSel ? 'selected' : ''}>${x.po_no} สั่ง ${esc(thaiDate(x.order_date))} ${esc(qty(code, x.qty))}</option>`).join('')}</select></label>
+      <label class="f">อ้างใบสั่งซื้อ<select class="in" name="po"><option value="">ไม่อ้าง</option>${openPOs.map((x) => `<option value="${x.po_no}" ${x.po_no === poSel ? 'selected' : ''}>${x.po_no} สั่ง ${esc(thaiDate(x.order_date))} ${esc(qty(code, x.qty))}${x.received_qty ? ` ค้างรับ ${esc(qty(code, poLeft(x)))}` : ''}</option>`).join('')}</select></label>
       <label class="f">${it.make === 'farm' ? 'เกษตรกร (FM-23)' : 'ผู้ขาย'}<select class="in" name="supplier">${sups.map((s) => `<option value="${s.supplier_id}" ${s.supplier_id === (po ? po.supplier_id : it.supplier_id) ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
-      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" min="0.01" step="any" required value="${po ? po.qty : ''}"></label>
+      <label class="f">จำนวนที่นับได้จริง (${esc(it.unit)})<input class="in" name="qty" type="number" ${qtyAttrs(it)} required placeholder="${po ? `ค้างรับตามใบสั่งซื้อ ${esc(qn(code, poLeft(po)))}` : 'นับหรือชั่งจริงแล้วกรอก'}"></label>
       ${expField()}
-      <div class="form-note">เมื่อบันทึก ระบบออกเลข${it.make === 'farm' ? 'ที่รับตาม SOP-PD-07' : 'รับ'} <span class="mono">${esc(nextLotNo(code))}</span> ติดป้าย ${lotChip('รอปล่อยผ่าน')} ส่งเข้าคิวฝ่ายควบคุมคุณภาพ และถ้าอ้างใบสั่งซื้อที่มาจากใบขอซื้อ ใบขอซื้อจะเลื่อนไปขั้นตรวจรับพัสดุ ของจะเบิกได้หลังหัวหน้าฝ่ายควบคุมคุณภาพปล่อยผ่าน (ระเบียบ V8.9 ข้อ 77)</div>
+      ${openPOs.length ? '<label class="f f-check"><input type="checkbox" name="close" value="1"> ปิดใบสั่งซื้อแม้รับไม่ครบ (ผู้ขายแจ้งว่าจะไม่ส่งส่วนที่เหลือ)</label>' : ''}
+      <div class="form-note">นับของจริงแล้วกรอก ไม่ต้องเท่าใบสั่งซื้อ ถ้าผู้ขายส่งไม่ครบ ใบสั่งซื้อจะค้างยอดที่เหลือไว้รอรับครั้งต่อไป เมื่อบันทึก ระบบออกเลข${it.make === 'farm' ? 'ที่รับตาม SOP-PD-07' : 'รับ'} <span class="mono">${esc(nextLotNo(code))}</span> ติดป้าย ${lotChip('รอปล่อยผ่าน')} ส่งเข้าคิวฝ่ายควบคุมคุณภาพ และเมื่อรับครบตามใบสั่งซื้อที่มาจากใบขอซื้อ ใบขอซื้อจะเลื่อนไปขั้นตรวจรับพัสดุ ของจะเบิกได้หลังหัวหน้าฝ่ายควบคุมคุณภาพปล่อยผ่าน (ระเบียบ V8.9 ข้อ 77)</div>
       <div class="form-actions"><button type="submit" class="btn btn-solid" ${can('receive') ? '' : 'disabled'}>บันทึกรับเข้า</button></div>
     </form></section>`;
 }
@@ -505,7 +507,7 @@ function issueForm(p) {
     ${askedNote(p, code, 'issue')}
     <form data-form="issue" class="form-grid">
       ${itemPicker({ name: 'item', items, value: code, act: 'issueItem', label: 'รายการ', id: 'issue' })}
-      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" min="0.01" step="any" required></label>
+      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" ${qtyAttrs(it)} required></label>
       ${isFG(it) ? `<label class="f wide">จ่ายให้ลูกค้า (เลือกจากทะเบียนลูกค้า ระบบออกใบส่งของให้)<select class="in" name="to" required><option value="">เลือกลูกค้า</option>${S.base.customers.filter(active).map((c) => `<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('')}</select></label>`
         : `<label class="f wide">จ่ายให้<input class="in" name="to" required list="toList" maxlength="120" placeholder="เช่น งานผลิต J70-350"></label>
       <datalist id="toList">${S.jobs.filter((j) => j.status !== 'done').slice(-80).map((j) => `<option value="งานผลิต ${j.job_id}">`).join('')}</datalist>`}
@@ -630,7 +632,7 @@ function arTab(p, ar) {
   const from = addDays(S.today, -365);
   const rows = S.base.customers.map((c) => {
     const inv = S.invoices.filter((v) => v.customer_id === c.customer_id && v.date <= S.today);
-    return { c, sales: inv.filter((v) => v.date > from).reduce((s, v) => s + v.total, 0), out: inv.filter((v) => !v.paid_date).reduce((s, v) => s + v.total, 0), over: inv.filter((v) => !v.paid_date && v.due_date < S.today).reduce((s, v) => s + v.total, 0), oldest: inv.filter((v) => !v.paid_date).reduce((m, v) => Math.max(m, daysBetween(v.date, S.today)), 0) };
+    return { c, sales: inv.filter((v) => v.date > from).reduce((s, v) => s + v.total, 0), out: inv.filter((v) => !v.paid_date).reduce((s, v) => s + owedOf(v), 0), over: inv.filter((v) => !v.paid_date && v.due_date < S.today).reduce((s, v) => s + owedOf(v), 0), oldest: inv.filter((v) => !v.paid_date).reduce((m, v) => Math.max(m, daysBetween(v.date, S.today)), 0) };
   }).sort((a, b) => b.over - a.over || b.out - a.out);
   const unpaid = S.invoices.filter((v) => !v.paid_date && v.date <= S.today && (cust ? v.customer_id === cust : v.due_date < S.today)).sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 25);
   const canPay = can('payment');
@@ -640,7 +642,7 @@ function arTab(p, ar) {
     <p class="note">หน่วยเป็นบาท ยอดขายมาจากใบส่งของที่ออกพร้อมใบเบิกยาสำเร็จรูป FM-19</p></section>
     <section class="panel" aria-labelledby="iv-h"><div class="panel-h"><h2 id="iv-h">${cust ? `ใบค้างชำระของ ${esc(custName(cust))}` : 'ใบส่งของเกินกำหนดชำระ'}</h2>${cust ? '<a href="#/sales?tab=ar">ดูทุกรายที่เกินกำหนด</a>' : ''}</div>
     ${roleNote('payment', 'บันทึกรับชำระ')}
-    ${unpaid.length ? `<ul class="mini">${unpaid.map((v) => { const late = daysBetween(v.due_date, S.today); return `<li><span class="t"><a class="mono" href="#/doc?type=fm19&inv=${encodeURIComponent(v.inv_no)}">${esc(v.inv_no)}</a> ${cust ? '' : esc(short(custName(v.customer_id)))}<span class="d">ครบกำหนด ${esc(thaiDate(v.due_date))}${late > 0 ? ` เกินมา ${late} วัน` : ''} ยอด ${esc(money(v.total))}</span></span><button type="button" class="btn btn-sm" data-act="pay" data-inv="${esc(v.inv_no)}" ${canPay ? '' : 'disabled'}>รับชำระ</button></li>`; }).join('')}</ul>` : '<p class="empty">ไม่มีใบค้างชำระ</p>'}
+    ${unpaid.length ? `<ul class="mini">${unpaid.map((v) => { const late = daysBetween(v.due_date, S.today); return `<li><span class="t"><a class="mono" href="#/doc?type=fm19&inv=${encodeURIComponent(v.inv_no)}">${esc(v.inv_no)}</a> ${cust ? '' : esc(short(custName(v.customer_id)))}<span class="d">ครบกำหนด ${esc(thaiDate(v.due_date))}${late > 0 ? ` เกินมา ${late} วัน` : ''} ยอด ${esc(money(v.total))}${paidOf(v) > 0 ? ` รับแล้ว ${esc(money(paidOf(v)))} ค้าง ${esc(money(owedOf(v)))}` : ''}</span></span><button type="button" class="btn btn-sm" data-act="pay" data-inv="${esc(v.inv_no)}" ${canPay ? '' : 'disabled'}>รับชำระ</button></li>`; }).join('')}</ul>` : '<p class="empty">ไม่มีใบค้างชำระ</p>'}
     <div style="margin-top:16px">${agingBar(ar)}</div></section></div>`;
 }
 function salesTab(ms, p) {
@@ -724,6 +726,7 @@ function buildReceive(inp, keep = {}) {
   const it = S.items.get(inp.item);
   if (!it || !(it.make === 'buy' || it.make === 'farm')) return { error: it ? `${it.code} ${it.name} เป็นของที่โรงงานผลิตหรือแปรรูปเอง รับเข้าจากภายนอกไม่ได้ ของที่ผลิตเองเข้าคลังผ่านบอร์ดงาน` : 'ไม่พบรายการ เลือกจากรายการที่ขึ้นให้เลือก' };
   if (!active(it)) return { error: `${it.name} เลิกใช้แล้ว รับเข้าไม่ได้` };
+  if (intProblem(it, inp.qty)) return { error: intProblem(it, inp.qty) };
   const q = round(inp.item, Number(inp.qty));
   if (!(q > 0)) return { error: 'ใส่จำนวนก่อน' };
   const sup = S.base.suppliers.find((s) => s.supplier_id === inp.supplier);
@@ -739,32 +742,46 @@ function buildReceive(inp, keep = {}) {
   const date = keep.date || S.today;
   const bad = expProblem(inp.exp, date);
   if (bad) return { error: bad };
+  const po = inp.po ? S.pos.find((x) => x.po_no === inp.po) : null;
+  const left = po ? poLeft(po) : 0;
+  if (!inp.sure) {
+    const warns = [unusualQty(inp.item, 'รับ', q), po && q > left * 1.001 ? `รับ ${qty(inp.item, q)} เกินที่ค้างรับใน ${po.po_no} (ค้าง ${qty(inp.item, left)})` : ''].filter(Boolean);
+    if (warns.length) return { confirm: { title: 'จำนวนรับเข้าผิดปกติ ตรวจอีกครั้ง', msgs: warns } };
+  }
+  // รับไม่ครบ: ใบสั่งซื้อค้างยอดที่เหลือ ปิดใบเมื่อรับครบหรือผู้ใช้ติ๊กว่าผู้ขายจะไม่ส่งส่วนที่เหลือ (QA-011)
+  const closePo = po ? q >= left - 1e-9 || inp.close === '1' : false;
   const lotNo = keep.lot || nextLotNo(inp.item, date);
   const exp = inp.exp || (it.shelf_days ? addDays(date, it.shelf_days) : '');
   const fx = {
     lots: [{ lot_no: lotNo, item_code: inp.item, qty_in: q, date_in: date, exp_date: exp, status: 'รอปล่อยผ่าน', release_date: '', source: inp.po ? 'ใบสั่งซื้อ' : it.make === 'farm' ? 'รับซื้อ' : 'รับเข้า', source_ref: inp.po || sup.supplier_id }],
     moves: [newMove({ item_code: inp.item, lot_no: lotNo, type: 'รับ', qty: q, party: sup.name, doc_no: inp.po ? `FM-01 ${inp.po}` : it.make === 'farm' ? 'FM-23 ใบรับซื้อวัตถุดิบสมุนไพร' : 'FM-01', date, user_id: keep.user || S.user })],
   };
-  if (inp.po) {
-    fx.po = [{ po_no: inp.po, received_date: date, lot_no: lotNo }];
-    const pr = S.prs.find((r) => r.po_no === inp.po && !r.received);
-    if (pr) fx.prStep = [{ pr_no: pr.pr_no, patch: { received: date, received_by: keep.user || S.user } }];
+  let poLine = '';
+  if (po) {
+    fx.po = [{ po_no: po.po_no, recv: q, lot_no: lotNo, date, close: closePo }];
+    const pr = S.prs.find((r) => r.po_no === po.po_no && !r.received);
+    if (pr && closePo) fx.prStep = [{ pr_no: pr.pr_no, patch: { received: date, received_by: keep.user || S.user } }];
+    poLine = closePo ? `${po.po_no} ${q >= left - 1e-9 ? 'รับครบแล้ว ปิดใบสั่งซื้อ' : `ปิดใบสั่งซื้อ ผู้ขายจะไม่ส่งอีก ${qty(inp.item, left - q)}`}` : `${po.po_no} รับบางส่วน ยังค้างรับ ${qty(inp.item, left - q)}`;
   }
   return {
-    summary: `รับเข้า ${it.name} ${qty(inp.item, q)} จาก ${sup.name} ออกเลข ${lotNo} ติดป้ายรอปล่อยผ่าน`, effects: fx, room: 'store',
-    slip: { k: 'สำเนาบันทึกการตรวจรับ FM-01', no: lotNo, title: `${it.name} ${qty(inp.item, q)}`, lines: [`รับจาก ${sup.name}${inp.po ? ` ตาม ${inp.po}` : ''} ${thaiDate(date)}`, 'ติดป้ายรอปล่อยผ่านแล้ว ส่งเข้าคิวฝ่ายควบคุมคุณภาพ'], stamp: ['รอปล่อยผ่าน', 'crit'], links: [['พิมพ์ FM-01', `#/doc?type=fm01&from=${date}&to=${date}`]].concat(it.make === 'farm' ? [['พิมพ์ FM-23', `#/doc?type=fm23&lot=${lotNo}`]] : []) },
+    summary: `รับเข้า ${it.name} ${qty(inp.item, q)} จาก ${sup.name} ออกเลข ${lotNo} ติดป้ายรอปล่อยผ่าน${poLine ? ` (${poLine})` : ''}`, effects: fx, room: 'store',
+    slip: { k: 'สำเนาบันทึกการตรวจรับ FM-01', no: lotNo, title: `${it.name} ${qty(inp.item, q)}`, lines: [`รับจาก ${sup.name}${inp.po ? ` ตาม ${inp.po}` : ''} ${thaiDate(date)}`, poLine, 'ติดป้ายรอปล่อยผ่านแล้ว ส่งเข้าคิวฝ่ายควบคุมคุณภาพ'].filter(Boolean), stamp: ['รอปล่อยผ่าน', 'crit'], links: [['พิมพ์ FM-01', `#/doc?type=fm01&from=${date}&to=${date}`]].concat(it.make === 'farm' ? [['พิมพ์ FM-23', `#/doc?type=fm23&lot=${lotNo}`]] : []) },
   };
 }
 function buildIssue(inp, keep = {}) {
   const it = S.items.get(inp.item);
   if (!it) return { error: 'ไม่พบรายการ เลือกจากรายการที่ขึ้นให้เลือก' };
+  if (intProblem(it, inp.qty)) return { error: intProblem(it, inp.qty) };
   const q = round(inp.item, Number(inp.qty));
   const to = String(inp.to || '').trim();
   if (!(q > 0) || !to) return { error: 'ใส่จำนวนและผู้รับก่อน' };
+  if (to.length > 120) return { error: 'ชื่อผู้รับยาวเกิน 120 ตัวอักษร' };
   // ยาสำเร็จรูปต้องออกให้ลูกค้าในทะเบียนเท่านั้น จึงเกิดใบส่งของ ลูกหนี้ และไล่ย้อนเรียกคืนได้ (QA-005)
   if (isFG(it) && !S.base.customers.some((c) => c.name === to && active(c))) return { error: `"${to}" ไม่อยู่ในทะเบียนลูกค้า ยาสำเร็จรูปต้องเลือกผู้รับจากทะเบียนลูกค้า (ลูกค้าใหม่ให้เพิ่มในทะเบียนก่อน) เพื่อออกใบส่งของและไล่ย้อนเรียกคืนได้` };
   const { picks, short: lack } = fefoPick((S.lotsByItem.get(inp.item) || []).filter(usable), q);
   if (lack > 1e-9) return { error: `ของที่ตรวจสอบแล้วไม่พอ ขาด ${qty(inp.item, lack)}` };
+  const odd = !inp.sure && unusualQty(inp.item, 'จ่าย', q);
+  if (odd) return { confirm: { title: 'จำนวนเบิกผิดปกติ ตรวจอีกครั้ง', msgs: [odd] } };
   const date = keep.date || S.today;
   const fx = { moves: picks.map((pk) => newMove({ item_code: inp.item, lot_no: pk.lot_no, type: 'จ่าย', qty: round(inp.item, pk.qty), party: to, doc_no: REQ_FORM[it.kind], date, user_id: keep.user || S.user })) };
   const lines = [`จาก ${picks.length} ล็อต ${picks.map((pk) => `${pk.lot_no} ${qn(inp.item, pk.qty)}`).join(' ')}`];
@@ -788,6 +805,7 @@ function buildJob(inp, keep = {}) {
   const it = S.items.get(inp.item);
   if (!room || !it || it.lane !== room.lane || it.make !== 'make') return { error: 'ไม่พบรายการ เลือกจากรายการที่ขึ้นให้เลือก' };
   if (!producing(it)) return { error: `${it.code} ${it.name} ${active(it) ? `สถานะ${it.status}` : 'เลิกใช้แล้ว'} เปิดงานไม่ได้ (เปลี่ยนสถานะที่หน้าข้อมูลผลิตภัณฑ์)` };
+  if (intProblem(it, inp.qty)) return { error: intProblem(it, inp.qty) };
   const q = round(inp.item, Number(inp.qty));
   if (!(q > 0)) return { error: 'ใส่จำนวนก่อน' };
   const lane = room.lane;
@@ -839,10 +857,34 @@ function submitNewRaw(type, inp) {
   if (!can(b.key(inp))) return deny(b.key(inp), b.what);
   const r = b.build(inp);
   if (r.error) return toast(r.error, 'warn');
+  if (r.confirm) return askSure(type, inp, r.confirm);
   const ev = commit({ type, input: inp, summary: r.summary, effects: r.effects });
   showSlip(r.room, { ...r.slip, links: [...(r.slip.links || []), ['แก้ไขหรือลบรายการนี้', `#/log?edit=${ev.id}`]] });
   if (r.after) location.hash = r.after; else nav.route();
 }
+// ค่าที่ผิดปกติแต่อาจถูกจริง (จำนวนมากผิดปกติ รับเกินใบสั่งซื้อ ขอซื้อซ้ำ) ให้ถามยืนยันก่อน ไม่บันทึกทันที (QA-012 QA-017)
+function askSure(type, inp, c) {
+  openDialog({
+    title: c.title || 'ตรวจอีกครั้งก่อนบันทึก', ok: c.ok || 'ตรวจแล้ว ถูกต้อง บันทึก', cancel: 'กลับไปแก้',
+    body: `<ul class="dlg-list">${c.msgs.map((m) => `<li>${esc(m)}</li>`).join('')}</ul>${c.field ? `<label class="f">${esc(c.field.label)}<input class="in" name="${esc(c.field.name)}" maxlength="300" autofocus></label>` : ''}`,
+    onOk: (fd) => guard(() => {
+      const extra = { sure: '1' };
+      if (c.field) { const v = String(fd.get(c.field.name) || '').trim(); if (!v) return `กรอก${c.field.label}ก่อน`; extra[c.field.name] = v; }
+      submitNewRaw(type, { ...inp, ...extra });
+      return true;
+    }),
+  });
+}
+// จำนวนผิดปกติ: มากกว่า CONFIG.unusualQtyX เท่าของค่ากลาง 20 ครั้งล่าสุดของรายการนี้ (in-house)
+function unusualQty(code, type, q) {
+  const xs = (S.movesByItem.get(code) || []).filter((m) => m.type === type).slice(-20).map((m) => m.qty).sort((a, b) => a - b);
+  if (xs.length < 3) return '';
+  const med = xs[Math.floor(xs.length / 2)];
+  return med > 0 && q > med * CONFIG.unusualQtyX ? `${type === 'รับ' ? 'รับ' : 'เบิก'} ${qty(code, q)} มากกว่าที่เคย${type === 'รับ' ? 'รับ' : 'เบิก'}ราว ${num(q / med, 1)} เท่า (ปกติครั้งละราว ${qty(code, med)}) ตรวจว่าไม่ได้พิมพ์ศูนย์เกิน` : '';
+}
+// ของที่นับเป็นชิ้น ใส่ทศนิยมไม่ได้ ไม่ปัดให้เงียบๆ (QA-013)
+export const intProblem = (it, raw) => (it && isIntUnit(it.unit) && raw !== '' && !Number.isInteger(Number(raw)) ? `${it.unit} นับเป็นชิ้น ใส่จำนวนเต็ม (กรอก ${raw})` : '');
+const qtyAttrs = (it) => (isIntUnit(it.unit) ? 'min="1" step="1"' : 'min="0.01" step="any"');
 // เก็บเลขที่และวันที่เดิมไว้ เวลาแก้ไขจะได้เลขเดิม
 function keepOf(ev) {
   const fx = ev.effects || {};
@@ -888,17 +930,17 @@ function editPanel(ev) {
     fields = `<input type="hidden" name="item" value="${esc(inp.item)}"><input type="hidden" name="po" value="${esc(inp.po || '')}">
       <label class="f">รายการ<input class="in" value="${esc(`${inp.item} ${it.name}`)}" disabled></label>
       <label class="f">ผู้ขาย<select class="in" name="supplier">${sups.map((s) => `<option value="${s.supplier_id}" ${s.supplier_id === inp.supplier ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
-      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" step="any" min="0.01" required value="${esc(inp.qty)}"></label>
+      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" ${qtyAttrs(it)} required value="${esc(inp.qty)}"></label>
       ${expField(inp.exp || '')}`;
   } else if (type === 'issue') {
     const it = S.items.get(inp.item);
     fields = `<input type="hidden" name="item" value="${esc(inp.item)}"><label class="f">รายการ<input class="in" value="${esc(`${inp.item} ${it.name}`)}" disabled></label>
-      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" step="any" min="0.01" required value="${esc(inp.qty)}"></label>
+      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" ${qtyAttrs(it)} required value="${esc(inp.qty)}"></label>
       ${isFG(it) ? `<label class="f wide">จ่ายให้ลูกค้า<select class="in" name="to" required>${S.base.customers.filter((c) => active(c) || c.name === inp.to).map((c) => `<option value="${esc(c.name)}" ${c.name === inp.to ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></label>` : `<label class="f wide">จ่ายให้<input class="in" name="to" required maxlength="120" value="${esc(inp.to)}"></label>`}`;
   } else if (type === 'job') {
     const it = S.items.get(inp.item);
     fields = `<input type="hidden" name="room" value="${esc(inp.room)}"><input type="hidden" name="item" value="${esc(inp.item)}"><label class="f">รายการ<input class="in" value="${esc(`${inp.item} ${it.name}`)}" disabled></label>
-      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" step="any" min="1" required value="${esc(inp.qty)}"></label>`;
+      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" ${qtyAttrs(it)} required value="${esc(inp.qty)}"></label>`;
   } else if (type === 'qcResult') {
     fields = `<input type="hidden" name="lot" value="${esc(inp.lot)}"><label class="f">ผลตรวจ<select class="in" name="result"><option ${inp.result === 'ผ่านเกณฑ์' ? 'selected' : ''}>ผ่านเกณฑ์</option><option ${inp.result === 'ไม่ผ่านเกณฑ์' ? 'selected' : ''}>ไม่ผ่านเกณฑ์</option></select></label>
       <label class="f">หมายเหตุ<input class="in" name="note" value="${esc(inp.note || '')}"></label>`;
@@ -907,7 +949,8 @@ function editPanel(ev) {
     fields = `<input type="hidden" name="item" value="${esc(inp.item)}"><input type="hidden" name="supplier" value="${esc(inp.supplier)}"><label class="f">รายการ<input class="in" value="${esc(`${inp.item} ${it.name}`)}" disabled></label>
       <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" step="any" min="1" required value="${esc(inp.qty)}"></label>
       <label class="f">ราคาต่อหน่วย (บาท)<input class="in" name="unit_cost" type="number" step="any" min="0" required value="${esc(inp.unit_cost)}"></label>
-      <label class="f wide">เหตุผลความจำเป็น<input class="in" name="purpose" value="${esc(inp.purpose || '')}"></label>`;
+      <label class="f wide">เหตุผลความจำเป็น<input class="in" name="purpose" maxlength="300" value="${esc(inp.purpose || '')}"></label>
+      <label class="f wide">ถ้าราคา 0 บาท ใส่เหตุผล<input class="in" name="zero_reason" maxlength="200" value="${esc(inp.zero_reason || '')}"></label>`;
   }
   return `<section class="panel" aria-labelledby="ed-h"><div class="panel-h"><h2 id="ed-h">แก้ไขรายการ</h2><span class="meta">ฉบับเดิมยังอยู่ในประวัติ</span></div>
     <p class="form-note">เดิม: ${esc(ev.summary)}</p>
@@ -950,7 +993,7 @@ function viewLog(p) {
     return `<tr${(editId || delId) === e.id ? ' class="is-target" data-target' : ''}><td class="nowrap">${esc(new Date(e.at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }))}</td><td>${esc(short(staff(e.user).name))}<span class="sub-l">${esc(staff(e.user).role)}</span></td><td>${chip(KIND_TH[e.type] || e.type, 'ink')}</td><td${st && st !== 'active' ? ' class="struck"' : ''}>${esc(e.summary)}${e.before ? `<span class="sub-l">ฉบับเดิม: ${esc(e.before)}</span>` : ''}</td><td>${esc(e.reason || '')}</td><td>${statusChip(e)}</td><td>${acts}</td></tr>`;
   }).join('');
   return `<header class="room-head"><div><h1>ประวัติการแก้ไข</h1><p class="sub">ทุกรายการที่บันทึกในเว็บแก้ไขหรือลบได้ ต้องใส่เหตุผล ฉบับเดิมไม่หาย บอกได้ว่าใคร ทำอะไร จากค่าอะไรเป็นค่าอะไร เมื่อไร</p></div>
-  <div class="acts"><button type="button" class="btn" data-act="exportLog" ${S.events.length ? '' : 'disabled'}>${I.download}ส่งออก CSV</button><button type="button" class="btn btn-crit" data-act="reset" ${S.events.length ? '' : 'disabled'}>ล้างข้อมูลทดลองทั้งหมด</button></div></header>
+  <div class="acts"><button type="button" class="btn" data-act="exportLog" ${S.events.length ? '' : 'disabled'}>${I.download}ส่งออก CSV</button><button type="button" class="btn btn-crit" data-act="reset" ${S.events.length && can('reset') ? '' : 'disabled'} title="${can('reset') ? 'ดาวน์โหลดสำรองให้ก่อนล้าง' : 'เฉพาะหัวหน้ากลุ่มงาน'}">ล้างข้อมูลทดลองทั้งหมด</button></div></header>
   ${panel}
   <section class="panel" aria-labelledby="lg-h"><div class="panel-h"><h2 id="lg-h">รายการที่บันทึกในเว็บ</h2><span class="meta">${evs.length} รายการ เก็บในเบราว์เซอร์เครื่องนี้เท่านั้น</span></div>
   <div class="filters"><a class="fchip" href="#/log" ${show ? '' : 'aria-current="true"'}>ทั้งหมด</a><a class="fchip" href="#/log?show=changed" ${show ? 'aria-current="true"' : ''}>เฉพาะที่แก้ไขหรือลบ</a></div>
@@ -990,14 +1033,55 @@ function submitVoid(form) {
   location.hash = '#/log?show=changed';
 }
 
+// รับชำระ: กรอกจำนวนเงิน วันที่รับเงิน และเลขใบเสร็จ รับบางส่วนได้ ใบส่งของค้างยอดที่เหลือ (QA-034)
 function recordPayment(invNo) {
   if (!can('payment')) return deny('payment', 'บันทึกรับชำระ');
   const v = S.invoices.find((x) => x.inv_no === invNo);
-  if (!v || v.paid_date) return toast('ใบนี้ชำระแล้ว', 'warn');
-  const ev = commit({ type: 'payment', input: { inv: invNo }, summary: `รับชำระ ${invNo} ${custName(v.customer_id)} ${money(v.total)}`, effects: { paid: [{ inv_no: invNo, paid_date: S.today }] } });
-  showSlip('sales', { k: 'สำเนาใบรับชำระ', no: invNo, title: `${custName(v.customer_id)} ${money(v.total)}`, lines: [`ครบกำหนด ${thaiDate(v.due_date)} รับชำระ ${thaiDate(S.today)}`], stamp: ['รับชำระแล้ว', 'ok'], links: [['ลบรายการนี้ถ้าบันทึกผิด', `#/log?del=${ev.id}`]] });
-  nav.route();
+  if (!v || v.paid_date || owedOf(v) <= 0) return toast('ใบนี้ชำระครบแล้ว', 'warn');
+  const owed = owedOf(v);
+  const body = `<dl class="fields dlg-fields"><div><dt>ใบส่งของ</dt><dd class="mono dlg-big">${esc(invNo)}</dd></div><div><dt>ลูกค้า</dt><dd><strong>${esc(custName(v.customer_id))}</strong></dd></div>
+      <div><dt>ยอดใบนี้</dt><dd>${esc(money(v.total))}</dd></div><div><dt>ค้างชำระ</dt><dd><strong>${esc(baht(owed))} บาท</strong>${paidOf(v) > 0 ? `<span class="sub-l">รับแล้ว ${esc(money(paidOf(v)))}</span>` : ''}</dd></div></dl>
+    <label class="f">จำนวนเงินที่รับ (บาท)<input class="in" name="amount" type="number" min="0.01" step="0.01" max="${owed}" value="${owed}" required></label>
+    <label class="f">วันที่รับเงิน<input class="in" name="date" type="date" value="${S.today}" min="${v.date}" max="${S.today}" required></label>
+    <label class="f">เลขที่ใบเสร็จรับเงิน<input class="in" name="receipt" maxlength="30" required autofocus placeholder="เช่น บร 0123/2570"></label>
+    <p class="dlg-note">รับน้อยกว่ายอดค้างได้ ใบส่งของจะค้างยอดที่เหลือ บันทึกแล้วลบได้จากประวัติการแก้ไขถ้าบันทึกผิด</p>`;
+  openDialog({
+    title: `รับชำระ ${invNo}`, body, ok: 'บันทึกรับชำระ',
+    onOk: (fd) => guard(() => {
+      const amount = Math.round(Number(fd.get('amount')) * 100) / 100;
+      const date = String(fd.get('date') || '');
+      const receipt = String(fd.get('receipt') || '').trim();
+      if (!(amount > 0)) return 'ใส่จำนวนเงินที่รับ';
+      if (amount > owed + 0.005) return `รับเกินยอดค้าง (ค้าง ${baht(owed)} บาท)`;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date > S.today || date < v.date) return `วันที่รับเงินต้องอยู่ระหว่างวันที่ออกใบ ${thaiDate(v.date)} ถึงวันนี้`;
+      if (!receipt) return 'ใส่เลขที่ใบเสร็จรับเงิน';
+      const part = amount < owed - 0.005;
+      const ev = commit({ type: 'payment', input: { inv: invNo, amount, date, receipt }, summary: `รับชำระ ${invNo} ${custName(v.customer_id)} ${money(amount)} ใบเสร็จ ${receipt}${part ? ` (บางส่วน ค้างอีก ${money(owed - amount)})` : ''}`, effects: { paid: [{ inv_no: invNo, amount, date, receipt }] } });
+      showSlip('sales', { k: 'สำเนาใบรับชำระ', no: invNo, title: `${custName(v.customer_id)} ${money(amount)}`, lines: [`ใบเสร็จ ${receipt} รับเงิน ${thaiDate(date)} ครบกำหนด ${thaiDate(v.due_date)}`, part ? `รับบางส่วน ใบนี้ยังค้าง ${money(owed - amount)}` : 'ชำระครบแล้ว'], stamp: [part ? 'รับบางส่วน' : 'รับชำระแล้ว', part ? 'warn' : 'ok'], links: [['ลบรายการนี้ถ้าบันทึกผิด', `#/log?del=${ev.id}`]] });
+      nav.route();
+      return true;
+    }),
+  });
 }
+
+// ล้างข้อมูลทดลอง: เฉพาะหัวหน้ากลุ่มงาน และดาวน์โหลดสำรองให้ก่อนทุกครั้ง (QA-021)
+function askReset() {
+  if (!can('reset')) return deny('reset', 'ล้างข้อมูลทดลอง');
+  openDialog({
+    title: 'ล้างข้อมูลทดลองทั้งหมด', ok: 'ดาวน์โหลดสำรองแล้วล้าง', tone: 'crit',
+    body: `<p>รายการที่ทดลองกรอกในเบราว์เซอร์นี้ ${num(S.events.length)} รายการจะหายจากหน้าจอ แล้วกลับไปใช้ข้อมูลจำลองตั้งต้น ระบบจะดาวน์โหลดไฟล์สำรอง (JSON) และประวัติการแก้ไข (CSV) ให้ก่อนล้าง</p>`,
+    onOk: () => guard(() => {
+      download(`ข้อมูลทดลอง-สำรองก่อนล้าง-${S.today}.json`, eventsJSON(), 'application/json');
+      download(`ประวัติการแก้ไข-ก่อนล้าง-${S.today}.csv`, logCSV());
+      resetEvents();
+      slipState.slip = null;
+      toast('ดาวน์โหลดสำรองแล้ว และกลับไปใช้ข้อมูลจำลองตั้งต้นแล้ว');
+      route();
+      return true;
+    }),
+  });
+}
+const logCSV = () => toCSV(S.events.map((x) => ({ ...x, user_name: staff(x.user).name, role: staff(x.user).role })), ['at', 'user', 'user_name', 'role', 'type', 'summary', 'reason', 'target']);
 
 // ================= แถบด้านบน =================
 function renderChrome(id) {
@@ -1070,6 +1154,7 @@ function route() {
 }
 nav.route = route;
 actions.submitNew = submitNew;
+actions.guard = (fn) => guard(fn);
 
 const HANDLERS = {
   click: { ...buyHandlers.click, ...registerHandlers.click, ...notesHandlers.click },
@@ -1166,8 +1251,8 @@ function bind() {
     if (act === 'slipClose') { slipState.slip = null; route(); }
     if (act === 'print') window.print();
     if (act === 'export') { download('lots-ข้อมูลจำลอง.csv', toCSV(S.lots, ['lot_no', 'item_code', 'qty_in', 'qty_left', 'date_in', 'exp_date', 'status', 'release_date', 'source', 'source_ref'])); download('moves-ข้อมูลจำลอง.csv', toCSV(S.moves, ['move_id', 'date', 'item_code', 'lot_no', 'type', 'qty', 'party', 'doc_no', 'user_id'])); }
-    if (act === 'exportLog') download('ประวัติการแก้ไข-ข้อมูลจำลอง.csv', toCSV(S.events.map((x) => ({ ...x, user_name: staff(x.user).name, role: staff(x.user).role })), ['at', 'user', 'user_name', 'role', 'type', 'summary', 'reason', 'target']));
-    if (act === 'reset' && confirm('ล้างทุกอย่างที่ทดลองกรอกในเบราว์เซอร์นี้ แล้วกลับไปใช้ข้อมูลจำลองตั้งต้น?')) { resetEvents(); slipState.slip = null; toast('กลับไปใช้ข้อมูลจำลองตั้งต้นแล้ว'); route(); }
+    if (act === 'exportLog') download('ประวัติการแก้ไข-ข้อมูลจำลอง.csv', logCSV());
+    if (act === 'reset') askReset();
   }
   main.addEventListener('change', (e) => {
     const t = e.target;
@@ -1201,7 +1286,7 @@ function bind() {
     const kind = form.dataset.form;
     if (HANDLERS.submit[kind]) return HANDLERS.submit[kind](form, e);
     const f = new FormData(form);
-    if (kind === 'receive') submitNew('receive', { item: codeOf(f.get('item')), po: f.get('po') || '', supplier: f.get('supplier'), qty: f.get('qty'), exp: f.get('exp') || '' });
+    if (kind === 'receive') submitNew('receive', { item: codeOf(f.get('item')), po: f.get('po') || '', supplier: f.get('supplier'), qty: f.get('qty'), exp: f.get('exp') || '', close: f.get('close') ? '1' : '' });
     if (kind === 'issue') submitNew('issue', { item: codeOf(f.get('item')), qty: f.get('qty'), to: String(f.get('to') || '').trim() });
     if (kind === 'job') submitNew('job', { room: form.dataset.room, item: codeOf(f.get('item')), qty: f.get('qty') });
     if (kind === 'qc') submitNew('qcResult', { lot: form.dataset.lot, result: f.get('result'), note: String(f.get('note') || '').trim() });

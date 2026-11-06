@@ -153,7 +153,7 @@ export function storeBanner() {
 // ตัวนำทาง (app.js ตั้งค่าให้ตอนเริ่ม) เพื่อให้ทุกส่วนสั่งวาดหน้าใหม่ได้
 export const nav = { route: () => {} };
 // การกระทำที่ app.js ลงทะเบียนไว้ให้ส่วนอื่นเรียกใช้ (เลี่ยงการ import วนกลับมาที่ app.js)
-export const actions = { submitNew: () => {} };
+export const actions = { submitNew: () => {}, guard: (fn) => fn() };
 export function setHash(id, o = {}) {
   const x = new URLSearchParams(o);
   for (const [k, v] of [...x]) if (v === '' || v === undefined || v === 'undefined' || v === null) x.delete(k);

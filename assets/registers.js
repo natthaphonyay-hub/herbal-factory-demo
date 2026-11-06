@@ -2,7 +2,7 @@
 // ทุกการแก้ทะเบียนเป็นเหตุการณ์ที่มีเหตุผล ฉบับเดิมยังอยู่ ลบ = เลิกใช้ (ข้อมูลเก่ายังอ้างถึงได้)
 import { CONFIG } from './config.js';
 import { S, D, commit, currentUser, staff, active, producing, isFG, thaiDate, daysBetween, assetDue, costOf, bomOf, bomVersions, nextAssetId, MASTER, addDays } from './data.js';
-import { esc, num, baht, qty, qh, short, I, chip, tableWrap, supName, who, toast, can, deny, roleNote, nav, setHash, showSlip, slipBlock, head, seg, itemPicker, codeOf, itemLink, jobLink } from './ui.js';
+import { esc, num, baht, qty, qh, short, I, chip, tableWrap, supName, who, toast, can, deny, roleNote, nav, setHash, showSlip, slipBlock, head, seg, itemPicker, codeOf, itemLink, jobLink, openDialog, actions } from './ui.js';
 import { lotsPanel, movesPanel } from './detail.js';
 
 const STATUS_LV = { 'ผลิตอยู่': 'ok', 'พักผลิต': 'warn', 'ยกเลิกผลิต': 'exp' };
@@ -16,20 +16,23 @@ const FIELDS = {
   product: [['name', 'ชื่อผลิตภัณฑ์', 'text'], ['code24', 'เลข 24 หลัก', 'text'], ['shelf_days', 'อายุยา (วัน)', 'number'], ['price', 'ราคาขาย (บาท)', 'number'], ['batch_or_pack', 'ขนาดรุ่น', 'number'], ['loss_pct', 'เกณฑ์สูญเสียผลิต (%)', 'number'], ['pack_loss_pct', 'เกณฑ์สูญเสียบรรจุ (%)', 'number']],
   assets: [['name', 'รายการเครื่องมือ / อุปกรณ์', 'text'], ['asset_no', 'หมายเลขครุภัณฑ์', 'text'], ['serial', 'หมายเลขเครื่อง', 'text'], ['room', 'ตำแหน่งที่ตั้ง (ห้อง)', 'text'], ['owner_id', 'ผู้รับผิดชอบ', 'staff'], ['status', 'สถานะ', 'select', ['ใช้งาน', 'ชำรุด', 'เลิกใช้']], ['sop', 'SOP ที่เกี่ยวข้อง', 'text'], ['pm_days', 'รอบบำรุงรักษา (วัน)', 'number'], ['cal_days', 'รอบสอบเทียบ (วัน 0 = ไม่ต้อง)', 'number'], ['note', 'หมายเหตุ', 'text']],
 };
-const field = (row, [k, label, type, opts]) => {
+// ช่องผ่านการคัดเลือกของผู้ขาย แก้ได้เฉพาะหัวหน้าฝ่ายควบคุมคุณภาพ ช่องอื่นของผู้ขายแก้ได้เฉพาะผู้ดูแลทะเบียน (QP-12 ข้อ 4.3, QA-016)
+const lockedField = (table, k) => table === 'suppliers' && (k === 'approved' ? !can('supApprove') : !can('supMaster'));
+const field = (row, [k, label, type, opts], table = '') => {
   const v = row?.[k] ?? '';
-  if (type === 'select') return `<label class="f">${esc(label)}<select class="in" name="${k}">${opts.map((o) => `<option ${String(o) === String(v) ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></label>`;
+  const off = lockedField(table, k) ? ' disabled' : '';
+  if (type === 'select') return `<label class="f">${esc(label)}${k === 'approved' && table === 'suppliers' ? '<span class="sub-l">อนุมัติโดยหัวหน้าฝ่ายควบคุมคุณภาพ (QP-12 ข้อ 4.3)</span>' : ''}<select class="in" name="${k}"${off}>${opts.map((o) => `<option ${String(o) === String(v) ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></label>`;
   if (type === 'staff') return `<label class="f">${esc(label)}<select class="in" name="${k}">${S.base.staff.map((s) => `<option value="${s.user_id}" ${s.user_id === v ? 'selected' : ''}>${esc(short(s.name))} ${esc(s.role)}</option>`).join('')}</select></label>`;
-  return `<label class="f">${esc(label)}<input class="in" name="${k}" ${type === 'number' ? 'type="number" step="any" min="0"' : ''} value="${esc(v)}" ${k === 'code24' ? 'inputmode="numeric" pattern="[0-9]{24}" title="ตัวเลข 24 หลัก"' : ''}></label>`;
+  return `<label class="f">${esc(label)}<input class="in" name="${k}" ${type === 'number' ? 'type="number" step="any" min="0"' : 'maxlength="200"'} value="${esc(v)}" ${k === 'code24' ? 'inputmode="numeric" pattern="[0-9]{24}" title="ตัวเลข 24 หลัก"' : ''}${off}></label>`;
 };
 function masterForm(table, row, extra = {}) {
   const fields = FIELDS[extra.fieldsKey || table];
   const key = row ? row[MASTER[table]] : '';
   return `<form data-form="master" data-table="${table}" data-key="${esc(key)}" data-create="${row ? '' : '1'}" data-back="${esc(extra.back || '')}" class="form-grid">
-    ${fields.map((f) => field(row, f)).join('')}
-    ${extra.fm40 ? '<label class="f">เลขคำขอดำเนินการด้านเอกสาร FM-40<input class="in" name="fm40" placeholder="เช่น FM-40 ที่ 12/2570"></label>' : ''}
-    <label class="f wide">เหตุผลที่${row ? 'แก้ไข' : 'เพิ่ม'} (ต้องกรอก)<input class="in" name="reason" required></label>
-    <div class="form-actions"><button type="submit" class="btn btn-solid" ${can(extra.perm || TABLE_KEY[table]) ? '' : 'disabled'}>บันทึก</button><a class="btn" href="${esc(extra.back || '#/registers')}">ยกเลิก</a></div></form>`;
+    ${fields.map((f) => field(row, f, table)).join('')}
+    ${extra.fm40 ? '<label class="f">เลขคำขอดำเนินการด้านเอกสาร FM-40<input class="in" name="fm40" maxlength="60" placeholder="เช่น FM-40 ที่ 12/2570"></label>' : ''}
+    <label class="f wide">เหตุผลที่${row ? 'แก้ไข' : 'เพิ่ม'} (ต้องกรอก)<input class="in" name="reason" required maxlength="300"></label>
+    <div class="form-actions"><button type="submit" class="btn btn-solid" ${can(extra.perm || TABLE_KEY[table]) || (table === 'suppliers' && can('supApprove')) ? '' : 'disabled'}>บันทึก</button><a class="btn" href="${esc(extra.back || '#/registers')}">ยกเลิก</a></div></form>`;
 }
 function historyOf(pred, title = 'ประวัติการแก้ทะเบียนนี้') {
   const evs = S.events.filter((e) => S.evState.get(e.id)?.status === 'active' && e.type !== 'void' && pred(e)).slice().reverse().slice(0, 30);
@@ -100,12 +103,13 @@ function regSimple(p, table) {
   const sel = rows.find((r) => r[keyCol] === editKey);
   const cols = table === 'suppliers' ? [['name', 'ชื่อผู้ผลิต / จำหน่าย'], ['type', 'ประเภท'], ['standard', 'มาตรฐาน'], ['approved', 'ผ่านคัดเลือก'], ['quoted_lead_days', 'ระยะส่งที่แจ้ง'], ['note', 'หมายเหตุ']] : [['name', 'ชื่อลูกค้า'], ['type', 'ประเภท'], ['credit_days', 'เครดิต (วัน)']];
   const perm = TABLE_KEY[table];
-  return `${sel ? `<section class="panel" aria-labelledby="re-h"><div class="panel-h"><h2 id="re-h">แก้ไข ${esc(sel.name)}</h2><a href="#/registers?tab=${table}">ปิด</a></div>${roleNote(perm, `แก้${TABLE_TH[table]}`)}${masterForm(table, sel, { back: `#/registers?tab=${table}` })}</section>` : ''}
+  const note = table === 'suppliers' && can('supApprove') && !can(perm) ? `<p class="form-note">หัวหน้าฝ่ายควบคุมคุณภาพแก้ได้เฉพาะช่องผ่านการคัดเลือก (อนุมัติผู้ขายตาม QP-12 ข้อ 4.3) ช่องอื่นแก้โดยผู้ดูแลทะเบียนผู้ขาย</p>` : roleNote(perm, `แก้${TABLE_TH[table]}`);
+  return `${sel ? `<section class="panel" aria-labelledby="re-h"><div class="panel-h"><h2 id="re-h">แก้ไข ${esc(sel.name)}</h2><a href="#/registers?tab=${table}">ปิด</a></div>${note}${masterForm(table, sel, { back: `#/registers?tab=${table}` })}</section>` : ''}
   <section class="panel" aria-labelledby="rs-h"><div class="panel-h"><h2 id="rs-h">${table === 'suppliers' ? 'ทะเบียนผู้ขายที่ได้รับการคัดเลือก FM-46' : 'ทะเบียนลูกค้า'}</h2><span class="meta">${rows.length} ราย ${table === 'suppliers' ? `<a href="#/doc?type=fm46">${I.print}พิมพ์ FM-46</a>` : ''}</span></div>
     ${tableWrap(`<table><thead><tr><th>รหัส</th>${cols.map(([, t]) => `<th>${esc(t)}</th>`).join('')}<th>สถานะ</th><th>จัดการ</th></tr></thead><tbody>
     ${rows.map((r) => `<tr${r[keyCol] === editKey ? ' class="is-target" data-target' : ''}><td class="code">${esc(r[keyCol])}</td>${cols.map(([k]) => `<td>${esc(r[k])}</td>`).join('')}<td>${active(r) ? chip('ใช้อยู่', 'ok') : chip('เลิกใช้', 'exp')}</td>
       <td class="nowrap"><a class="btn btn-sm" href="#/registers?tab=${table}&edit=${encodeURIComponent(r[keyCol])}">${I.edit}แก้ไข</a> <button type="button" class="btn btn-sm${active(r) ? ' btn-crit' : ''}" data-act="toggleActive" data-table="${table}" data-key="${esc(r[keyCol])}" ${can(perm) ? '' : 'disabled'}>${active(r) ? 'เลิกใช้' : 'กลับมาใช้'}</button></td></tr>`).join('')}</tbody></table>`, TABLE_TH[table])}
-    ${table === 'suppliers' ? '<p class="note">ผู้ขายที่ยังไม่ผ่านการคัดเลือกและอนุมัติ ห้ามสั่งซื้อ (หมายเหตุท้าย FM-46) ระบบจะไม่ให้เขียนใบขอซื้อกับผู้ขายที่ช่องผ่านคัดเลือกเป็น N</p>' : ''}</section>
+    ${table === 'suppliers' ? '<p class="note">ผู้ขายที่ยังไม่ผ่านการคัดเลือกและอนุมัติ ห้ามสั่งซื้อและห้ามรับของ (หมายเหตุท้าย FM-46) ระบบไม่ให้เขียนใบขอซื้อหรือบันทึกรับเข้ากับผู้ขายที่ช่องผ่านคัดเลือกเป็น N ผู้อนุมัติผู้ขายคือหัวหน้าฝ่ายควบคุมคุณภาพ คนละคนกับผู้ซื้อ (QP-12 ข้อ 3.2.1 และ 4.3)</p>' : ''}</section>
     ${historyOf((e) => e.type === 'master' && e.effects?.master?.[0]?.table === table)}`;
 }
 
@@ -229,7 +233,7 @@ function submitMaster(form) {
   const row = create ? null : S.base[table].find((r) => r[keyCol] === key);
   const isProduct = !create && table === 'items' && isFG(row);
   const perm = isProduct ? 'productMaster' : TABLE_KEY[table];
-  if (!can(perm)) return deny(perm, 'แก้ทะเบียน');
+  if (!can(perm) && !(table === 'suppliers' && can('supApprove'))) return deny(perm, 'แก้ทะเบียน');
   const patch = {};
   for (const [k, v] of f) {
     if (k === 'reason' || k === 'fm40') continue;
@@ -239,6 +243,11 @@ function submitMaster(form) {
   }
   if (patch.code24 !== undefined && !/^\d{24}$/.test(patch.code24)) return toast('เลข 24 หลักต้องเป็นตัวเลข 24 ตัว', 'warn');
   if (!Object.keys(patch).length) return toast('ไม่มีช่องไหนเปลี่ยน', 'warn');
+  // คนซื้อแก้สถานะผ่านการคัดเลือกเองไม่ได้ และหัวหน้าฝ่ายควบคุมคุณภาพแก้ได้เฉพาะช่องนี้ (QA-016)
+  if (table === 'suppliers') {
+    if ('approved' in patch && !can('supApprove')) return deny('supApprove', 'เปลี่ยนสถานะผ่านการคัดเลือกของผู้ขาย');
+    if (Object.keys(patch).some((k) => k !== 'approved') && !can('supMaster')) return deny('supMaster', 'แก้ข้อมูลอื่นของผู้ขาย');
+  }
   if (create) Object.assign(patch, { [keyCol]: key, year: new Date().getFullYear() + 543, vendor: '', active: '' });
   const diff = create ? 'เพิ่มใหม่' : Object.keys(patch).map((k) => `${k} ${row[k] ?? '-'} เป็น ${patch[k]}`).join(', ');
   const name = create ? patch.name : row.name;
@@ -252,11 +261,18 @@ function toggleActive(b) {
   if (!can(perm)) return deny(perm, 'แก้ทะเบียน');
   const row = S.base[table].find((r) => r[MASTER[table]] === key);
   const off = active(row);
-  const reason = prompt(`เหตุผลที่${off ? 'เลิกใช้' : 'กลับมาใช้'} ${row.name} (ต้องกรอก)`);
-  if (!reason || !reason.trim()) return toast('ต้องมีเหตุผล', 'warn');
-  commit({ type: 'master', reason: reason.trim(), summary: `${off ? 'เลิกใช้' : 'กลับมาใช้'} ${TABLE_TH[table]} ${key} ${row.name}`, effects: { master: [{ table, key, patch: { active: off ? 'N' : '' } }] } });
-  toast(off ? 'เลิกใช้แล้ว ข้อมูลเก่ายังอ้างถึงได้' : 'กลับมาใช้แล้ว');
-  nav.route();
+  openDialog({
+    title: `${off ? 'เลิกใช้' : 'กลับมาใช้'} ${row.name}`, ok: off ? 'ยืนยันเลิกใช้' : 'ยืนยันกลับมาใช้', tone: off ? 'crit' : 'solid',
+    body: `<p>${off ? 'เลิกใช้แล้วจะเลือกในฟอร์มใหม่ไม่ได้ ข้อมูลเก่ายังอ้างถึงได้' : 'กลับมาใช้แล้วจะเลือกในฟอร์มได้อีกครั้ง'}</p><label class="f">เหตุผล (ต้องกรอก)<input class="in" name="reason" maxlength="300" required autofocus></label>`,
+    onOk: (fd) => actions.guard(() => {
+      const reason = String(fd.get('reason') || '').trim();
+      if (!reason) return 'ต้องมีเหตุผล';
+      commit({ type: 'master', reason, summary: `${off ? 'เลิกใช้' : 'กลับมาใช้'} ${TABLE_TH[table]} ${key} ${row.name}`, effects: { master: [{ table, key, patch: { active: off ? 'N' : '' } }] } });
+      toast(off ? 'เลิกใช้แล้ว ข้อมูลเก่ายังอ้างถึงได้' : 'กลับมาใช้แล้ว');
+      nav.route();
+      return true;
+    }),
+  });
 }
 function submitStatus(form) {
   if (!can('productMaster')) return deny('productMaster', 'เปลี่ยนสถานะผลิตภัณฑ์');

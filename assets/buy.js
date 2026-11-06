@@ -1,8 +1,8 @@
 // จัดซื้อวิธีเฉพาะเจาะจง: กรอกใบขอซื้อครั้งเดียว ระบบออกเอกสารแต่ละขั้น และบอกว่าตอนนี้รอใคร
 // ขั้นตอนตามชุดแบบฟอร์มวิธีเฉพาะเจาะจงใน OF06 (พ.ร.บ. จัดซื้อจัดจ้าง 2560 ม.56 (2)(ข) ระเบียบกระทรวงการคลัง 2560 ข้อ 22 และ 79)
 import { CONFIG, PROC, PROC_STEPS, CAN } from './config.js';
-import { S, D, commit, currentUser, thaiDate, daysBetween, addDays, poForecast, prStage, nextPrNo, nextPoNo, active, staff } from './data.js';
-import { esc, num, baht, qty, qh, short, I, chip, tableWrap, supName, toast, can, deny, roleNote, nav, setHash, showSlip, itemPicker, codeOf, actions, itemLink } from './ui.js';
+import { S, D, commit, currentUser, thaiDate, daysBetween, addDays, poForecast, prStage, nextPrNo, nextPoNo, active, staff, isIntUnit } from './data.js';
+import { esc, num, baht, qty, qh, short, I, chip, tableWrap, supName, toast, can, deny, roleNote, nav, setHash, showSlip, itemPicker, codeOf, actions, itemLink, openDialog } from './ui.js';
 
 const STEP = Object.fromEntries(PROC_STEPS.map((s, i) => [s.key, { ...s, i }]));
 const DOCS = {
@@ -23,14 +23,29 @@ export function buildPR(inp, keep = {}) {
   if (!sup) return { error: 'เลือกผู้ขาย' };
   if (sup.approved !== 'Y') return { error: 'ผู้ขายรายนี้ยังไม่ผ่านการคัดเลือกในทะเบียน FM-46 ห้ามสั่งซื้อ' };
   const q = Number(inp.qty), unit = Number(inp.unit_cost);
-  if (!(q > 0) || !(unit >= 0)) return { error: 'ใส่จำนวนและราคาต่อหน่วย' };
+  if (!(q > 0) || inp.unit_cost === '' || inp.unit_cost === undefined || !(unit >= 0)) return { error: 'ใส่จำนวนและราคาต่อหน่วย' };
+  if (isIntUnit(it.unit) && !Number.isInteger(q)) return { error: `${it.unit} นับเป็นชิ้น ใส่จำนวนเต็ม (กรอก ${inp.qty})` };
+  // ราคา 0 บาทต้องมีเหตุผล เช่น ได้รับบริจาค (QA-035)
+  const zero = String(inp.zero_reason || '').trim();
+  if (unit === 0 && !zero) return { error: 'ราคาต่อหน่วย 0 บาท ต้องใส่เหตุผลในช่อง "ถ้าราคา 0 บาท ใส่เหตุผล" เช่น ได้รับบริจาค' };
   const amount = Math.round(q * unit * 100) / 100;
   if (amount > PROC.specificMax) return { error: `วงเงิน ${baht(amount)} บาท เกิน ${num(PROC.specificMax)} บาท ใช้วิธีเฉพาะเจาะจงไม่ได้ ต้องใช้วิธีประกวดราคา` };
   const prNo = keep.pr || nextPrNo();
   const date = keep.date || S.today;
+  // ขอซื้อรายการเดิมซ้ำในช่วงใกล้กัน: รวมแล้วเกินวงเงิน = อาจแบ่งซื้อ ให้ผู้ขอซื้อยืนยันพร้อมเหตุผล (QA-017)
+  if (!inp.sure) {
+    const recent = S.prs.filter((r) => r.item_code === inp.item && !r.rejected && r.pr_no !== keep.pr && Math.abs(daysBetween(r.requested, date)) <= CONFIG.splitWindowDays);
+    const sum = recent.reduce((t, r) => t + r.amount, 0) + amount;
+    if (recent.length && sum > PROC.specificMax) return { confirm: { title: 'อาจเป็นการแบ่งซื้อ ตรวจก่อนส่ง', ok: 'ยืนยัน ส่งขออนุมัติ', msgs: [`${it.name} มีใบขอซื้อในช่วง ${CONFIG.splitWindowDays} วันแล้ว ${recent.length} ใบ (${recent.map((r) => r.pr_no).join(', ')}) รวมใบนี้ ${baht(sum)} บาท เกินวงเงินวิธีเฉพาะเจาะจง ${num(PROC.specificMax)} บาท`, 'ถ้าเป็นความต้องการเดียวกัน ต้องรวมเป็นใบเดียวและใช้วิธีจัดซื้อที่ตรงกับวงเงินรวม ห้ามแบ่งซื้อให้วงเงินแต่ละใบต่ำลง'], field: { name: 'split_note', label: 'เหตุผลที่ไม่ใช่การแบ่งซื้อ (ผู้ขอซื้อยืนยัน)' } } };
+    const pending = recent.filter((r) => !r.ordered);
+    if (pending.length) return { confirm: { title: 'มีใบขอซื้อรายการนี้ค้างอยู่', msgs: [`${it.name} มีใบขอซื้อที่ยังไม่ออกใบสั่งซื้อ ${pending.map((r) => r.pr_no).join(', ')} ขอซื้อเพิ่มอีกใบหรือไม่`] } };
+    const past = S.prs.filter((r) => r.item_code === inp.item && r.pr_no !== keep.pr).slice(-10).map((r) => r.qty).sort((a, b) => a - b);
+    const med = past.length >= 3 ? past[Math.floor(past.length / 2)] : 0;
+    if (med > 0 && q > med * CONFIG.unusualQtyX) return { confirm: { title: 'จำนวนขอซื้อผิดปกติ ตรวจอีกครั้ง', msgs: [`ขอซื้อ ${qty(inp.item, q)} มากกว่าที่เคยขอราว ${num(q / med, 1)} เท่า (ปกติครั้งละราว ${qty(inp.item, med)}) ตรวจว่าไม่ได้พิมพ์ศูนย์เกิน`] } };
+  }
   return {
     summary: `เขียนใบขอซื้อ ${prNo} ${it.name} ${qty(inp.item, q)} จาก ${sup.name} ${baht(amount)} บาท`, room: 'store',
-    effects: { newPr: [{ pr_no: prNo, po_no: '', item_code: inp.item, supplier_id: inp.supplier, qty: q, unit_cost: unit, amount, requested: date, requested_by: keep.user || S.user, purpose: inp.purpose || '' }] },
+    effects: { newPr: [{ pr_no: prNo, po_no: '', item_code: inp.item, supplier_id: inp.supplier, qty: q, unit_cost: unit, amount, requested: date, requested_by: keep.user || S.user, purpose: inp.purpose || '', zero_reason: zero, split_note: String(inp.split_note || '').trim() }] },
     slip: { k: 'สำเนาบันทึกขออนุมัติจัดซื้อ', no: prNo, title: `${it.name} ${qty(inp.item, q)} ${baht(amount)} บาท`, lines: [`${sup.name} วิธีเฉพาะเจาะจง ${amount > PROC.formSplit ? 'วงเงินเกิน 100,000 บาท' : 'วงเงินไม่เกิน 100,000 บาท'}`, 'ส่งหัวหน้ากลุ่มงานเห็นชอบ แล้วผู้อำนวยการอนุมัติ'], stamp: ['ส่งขออนุมัติ', 'ink'], links: [['พิมพ์บันทึกขออนุมัติจัดซื้อ', `#/doc?type=pr-memo&id=${encodeURIComponent(prNo)}`]] },
     after: `#/store?tab=buy&pr=${encodeURIComponent(prNo)}`,
   };
@@ -53,9 +68,10 @@ function prForm(p) {
     <form data-form="pr" class="form-grid">
       ${itemPicker({ name: 'item', items: buy, value: code, act: 'prItem', label: 'รายการ', id: 'pr' })}
       <label class="f">ผู้ขาย (จากทะเบียน FM-46)<select class="in" name="supplier" data-act="prSup">${sups.map((s) => `<option value="${s.supplier_id}" ${s.supplier_id === supId ? 'selected' : ''}>${esc(s.name)}${esc(tag(s))}</option>`).join('')}</select></label>
-      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" min="1" step="any" required value="${q}"></label>
+      <label class="f">จำนวน (${esc(it.unit)})<input class="in" name="qty" type="number" min="1" step="${isIntUnit(it.unit) ? '1' : 'any'}" required value="${q}"></label>
       <label class="f">ราคาต่อหน่วย (บาท) ราคาที่เคยซื้อ<input class="in" name="unit_cost" type="number" min="0" step="any" required value="${it.cost ?? ''}"></label>
-      <label class="f wide">เหตุผลความจำเป็น<input class="in" name="purpose" value="ใช้ผลิตยาสมุนไพรตามแผน ${esc(it.name)} ถึงจำนวนอย่างต่ำ" required></label>
+      <label class="f wide">เหตุผลความจำเป็น<input class="in" name="purpose" maxlength="300" value="ใช้ผลิตยาสมุนไพรตามแผน ${esc(it.name)} ถึงจำนวนอย่างต่ำ" required></label>
+      <label class="f wide">ถ้าราคา 0 บาท ใส่เหตุผล (เช่น ได้รับบริจาค)<input class="in" name="zero_reason" maxlength="200"></label>
       <div class="form-note">ผู้ขายรายนี้ส่งเฉลี่ย <span class="num">${num(f.sl.L)} ±${num(f.sl.sL)}</span> วัน (${f.sl.n} ครั้ง${f.sl.quoted ? ' ใช้ค่าที่ผู้ขายแจ้ง' : ''}) ถ้าได้รับอนุมัติภายใน 2 วัน คาดว่าของถึง ${esc(thaiDate(addDays(f.expected, 2)))}
         ${f.stockoutDate ? `ของในคลังหมด ${esc(thaiDate(f.stockoutDate))} โอกาสมาทัน <span class="num">${num(f.prob * 100)}%</span> ${chip(f.verdict.text, f.verdict.level)}` : ''}
         ยอดเงินประมาณ <span class="num">${baht(amount)}</span> บาท ${amount > PROC.specificMax ? chip('เกินวงเงินวิธีเฉพาะเจาะจง', 'crit') : chip(amount > PROC.formSplit ? 'แบบฟอร์มวงเงินเกิน 100,000 บาท' : 'แบบฟอร์มวงเงินไม่เกิน 100,000 บาท', 'ink')}
@@ -157,17 +173,25 @@ function rejectAction(b) {
   if (!pr) return;
   const st = prStage(pr);
   if (!can(st.key)) return deny(st.key, 'ไม่อนุมัติ');
-  const reason = prompt('เหตุผลที่ไม่อนุมัติ (ต้องกรอก)');
-  if (!reason || !reason.trim()) return toast('ไม่อนุมัติต้องมีเหตุผล', 'warn');
-  commit({ type: 'prStep', reason: reason.trim(), summary: `ไม่อนุมัติ ${pr.pr_no} ${S.items.get(pr.item_code).name}`, effects: { prStep: [{ pr_no: pr.pr_no, patch: { rejected: S.today, rejected_by: S.user, reject_reason: reason.trim() } }] } });
-  toast('บันทึกไม่อนุมัติแล้ว พร้อมเหตุผล');
-  nav.route();
+  const it = S.items.get(pr.item_code);
+  openDialog({
+    title: `ไม่อนุมัติ ${pr.pr_no}`, ok: 'ยืนยันไม่อนุมัติ', tone: 'crit',
+    body: `<p><strong>${esc(it.name)}</strong> ${esc(qty(pr.item_code, pr.qty))} ${esc(baht(pr.amount))} บาท</p><label class="f">เหตุผลที่ไม่อนุมัติ (ต้องกรอก)<input class="in" name="reason" maxlength="300" required autofocus></label>`,
+    onOk: (fd) => actions.guard(() => {
+      const reason = String(fd.get('reason') || '').trim();
+      if (!reason) return 'ไม่อนุมัติต้องมีเหตุผล';
+      commit({ type: 'prStep', reason, summary: `ไม่อนุมัติ ${pr.pr_no} ${it.name}`, effects: { prStep: [{ pr_no: pr.pr_no, patch: { rejected: S.today, rejected_by: S.user, reject_reason: reason } }] } });
+      toast('บันทึกไม่อนุมัติแล้ว พร้อมเหตุผล');
+      nav.route();
+      return true;
+    }),
+  });
 }
 
 export const buyHandlers = {
   click: { prStep: stepAction, prReject: rejectAction },
   submit: {
-    pr: (form) => { const f = new FormData(form); actions.submitNew('pr', { item: codeOf(f.get('item')), supplier: f.get('supplier'), qty: f.get('qty'), unit_cost: f.get('unit_cost'), purpose: String(f.get('purpose') || '').trim() }); },
+    pr: (form) => { const f = new FormData(form); actions.submitNew('pr', { item: codeOf(f.get('item')), supplier: f.get('supplier'), qty: f.get('qty'), unit_cost: f.get('unit_cost'), purpose: String(f.get('purpose') || '').trim(), zero_reason: String(f.get('zero_reason') || '').trim() }); },
   },
   change: {
     prItem: (t) => {
